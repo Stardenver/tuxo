@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>T.U.X.O.</title>
+<meta name="description" content="T.U.X.O. – ein Höhlenabenteuer mit Tux und Jetpack im 8-Bit-Stil. Direkt im Browser spielen.">
+<meta name="theme-color" content="#0c0814">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<main>
+  <canvas id="game" width="480" height="270" aria-label="T.U.X.O. Spielfeld">
+    T.U.X.O. braucht einen Browser mit Canvas-Unterstützung.
+  </canvas>
+</main>
+<div id="touch" aria-hidden="true">
+  <div class="pad">
+    <button data-key="ArrowLeft">◀</button>
+    <button data-key="ArrowDown">▼</button>
+    <button data-key="ArrowRight">▶</button>
+  </div>
+  <div class="pad">
+    <button data-key="KeyP" class="small">II</button>
+    <button data-key="Space" class="boom">BOOM</button>
+    <button data-key="ArrowUp" class="jet">▲</button>
+  </div>
+</div>
+<noscript><p class="nojs">T.U.X.O. braucht JavaScript.</p></noscript>
+<script src="levels.js"></script>
+<script src="game.js"></script>
+</body>
+</html>

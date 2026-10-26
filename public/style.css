@@ -1,0 +1,21 @@
+:root { color-scheme: dark; }
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; background: #0c0814; overflow: hidden; }
+body { display: flex; align-items: center; justify-content: center; touch-action: none;
+  -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+main { display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; }
+canvas { display: block; image-rendering: pixelated; image-rendering: crisp-edges; background: #000; }
+.nojs { color: #fff; font: 16px monospace; position: fixed; top: 16px; left: 16px; }
+#touch { display: none; }
+body.touch #touch { display: flex; position: fixed; left: 0; right: 0; bottom: 0; justify-content: space-between;
+  padding: 0 12px calc(12px + env(safe-area-inset-bottom)); pointer-events: none; }
+.pad { display: flex; gap: 10px; align-items: flex-end; pointer-events: auto; }
+#touch button { width: 64px; height: 64px; border-radius: 14px; border: 2px solid rgba(240,192,64,.55);
+  background: rgba(20,12,32,.55); color: #fff; font: bold 22px monospace; touch-action: none; }
+#touch button.on { background: rgba(240,192,64,.5); }
+#touch .boom { width: 80px; font-size: 16px; color: #ff8060; }
+#touch .jet { height: 96px; }
+#touch .small { width: 44px; height: 44px; font-size: 14px; }
+@media (orientation: portrait) { body.touch main { align-items: flex-start; padding-top: 16px; } }
+body.editing #touch { display: none; }
+body.editing canvas { cursor: crosshair; }

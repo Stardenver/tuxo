@@ -1,0 +1,12 @@
+# Lokaler Projektkontext (enthält Server- und Kontodaten) – bleibt außerhalb von Git
+CLAUDE.md
+# Laufzeitdaten
+api/data/
+*.sqlite
+*.sqlite-*
+__pycache__/
+*.log
+.env
+*.env
+.DS_Store
+node_modules/

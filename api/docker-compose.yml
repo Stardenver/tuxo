@@ -1,0 +1,38 @@
+# T.U.X.O. Level-API – nur Python-Standardbibliothek, kein eigener Port nach außen (Caddy: /api/*)
+services:
+  tuxo-api:
+    image: python:3.13-slim
+    container_name: tuxo-api
+    restart: unless-stopped
+    command: ["python", "-u", "/app/app.py", "serve"]
+    user: "65534:65534"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      TUXO_DB: /data/levels.sqlite
+      PYTHONDONTWRITEBYTECODE: "1"
+    volumes:
+      - ./app.py:/app/app.py:ro
+      - ./data:/data
+    mem_limit: 128m
+    cpus: 0.5
+    pids_limit: 64
+    networks:
+      - edge
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=3)"]
+      interval: 60s
+      timeout: 5s
+      retries: 3
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "2"
+
+networks:
+  edge:
+    external: true
