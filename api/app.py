@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""T.U.X.O. Level-API: speichert geteilte Level unter kurzen Codes.
+"""T.U.X.O. Level-API: speichert geteilte Level unter kurzen Codes und die globale Bestenliste.
 
 Nur Standardbibliothek. Läuft hinter einem Reverse Proxy (/api/*), ohne eigenen Port nach außen.
 
@@ -7,6 +7,8 @@ Nur Standardbibliothek. Läuft hinter einem Reverse Proxy (/api/*), ohne eigenen
     python app.py stats          Anzahl gespeicherter Level
     python app.py show CODE      Level als Text anzeigen (Moderation)
     python app.py delete CODE    Level löschen
+    python app.py scores         Bestenliste mit IDs anzeigen (Moderation)
+    python app.py delscore ID    Eintrag aus der Bestenliste löschen
 """
 import hashlib
 import ipaddress
@@ -34,6 +36,12 @@ MAX_LEVELS = 50_000
 LIMIT_POST_IP = ((3600, 15), (86400, 40))
 LIMIT_POST_ALL = ((86400, 1000),)
 LIMIT_GET_IP = ((60, 60),)
+# Bestenliste: Namen nur aus der Pixelschrift des Spiels, kurz gehalten (öffentlich sichtbar)
+NAME_RE = re.compile(r'[A-Z0-9ÄÖÜ.!\- ]{1,10}')
+TOP_N, KEEP_SCORES = 10, 100
+MAX_SCORE, MAX_PER_LEVEL = 10_000_000, 20_000
+LIMIT_SCORE_IP = ((3600, 10), (86400, 30))
+LIMIT_SCORE_ALL = ((86400, 2000),)
 
 
 class Limiter:
@@ -152,6 +160,12 @@ def init_db():
             hash TEXT NOT NULL UNIQUE,
             data TEXT NOT NULL,
             created INTEGER NOT NULL)''')
+        con.execute('''CREATE TABLE IF NOT EXISTS scores (
+            id INTEGER PRIMARY KEY,
+            name TEXT NOT NULL,
+            score INTEGER NOT NULL,
+            levels INTEGER NOT NULL,
+            created INTEGER NOT NULL)''')
     con.close()
 
 
@@ -191,6 +205,59 @@ def load_level(code):
         con.close()
 
 
+def clean_name(name):
+    """Großbuchstaben, Leerraum zusammengefasst. Gibt None zurück, wenn der Name unzulässig ist."""
+    if not isinstance(name, str):
+        return None
+    name = ' '.join(name.upper().split())
+    return name if NAME_RE.fullmatch(name) else None
+
+
+def validate_score(payload):
+    """Gibt (name, score, levels) oder eine Fehlermeldung zurück."""
+    if not isinstance(payload, dict):
+        return 'UNGÜLTIGE DATEN'
+    name, score, levels = clean_name(payload.get('name')), payload.get('score'), payload.get('levels')
+    if not name:
+        return 'UNGÜLTIGER NAME'
+    if type(score) is not int or type(levels) is not int or not 0 <= levels <= 10_000:
+        return 'UNGÜLTIGE PUNKTZAHL'
+    # Grobe Plausibilität: niemand holt in einem Level mehr als MAX_PER_LEVEL Punkte
+    if not 0 < score <= min(MAX_SCORE, (levels + 1) * MAX_PER_LEVEL):
+        return 'UNGÜLTIGE PUNKTZAHL'
+    return name, score, levels
+
+
+def top_scores(con):
+    rows = con.execute('SELECT name, score, levels FROM scores ORDER BY score DESC, id ASC LIMIT ?', (TOP_N,)).fetchall()
+    return [{'name': n, 'score': s, 'levels': l} for n, s, l in rows]
+
+
+def store_score(name, score, levels):
+    """Trägt ein und gibt (Platz oder None, Top 10) zurück. Gleichstand: der frühere Eintrag steht oben."""
+    con = db()
+    try:
+        with con:
+            cur = con.execute('INSERT INTO scores (name, score, levels, created) VALUES (?, ?, ?, ?)',
+                              (name, score, levels, int(time.time())))
+            new_id = cur.lastrowid
+            con.execute('''DELETE FROM scores WHERE id NOT IN
+                (SELECT id FROM scores ORDER BY score DESC, id ASC LIMIT ?)''', (KEEP_SCORES,))
+        rank = con.execute('SELECT COUNT(*) FROM scores WHERE score > ? OR (score = ? AND id < ?)',
+                           (score, score, new_id)).fetchone()[0] + 1
+        return (rank if rank <= TOP_N else None), top_scores(con)
+    finally:
+        con.close()
+
+
+def load_scores():
+    con = db()
+    try:
+        return top_scores(con)
+    finally:
+        con.close()
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = 'tuxo'
     sys_version = ''
@@ -217,6 +284,10 @@ class Handler(BaseHTTPRequestHandler):
         path = self.path.split('?', 1)[0]
         if path == '/api/health':
             return self.send_json(200, {'ok': True})
+        if path == '/api/scores':
+            if not limiter.allow(('get', client_key(self)), LIMIT_GET_IP):
+                return self.too_many('ZU VIELE ANFRAGEN - BITTE KURZ WARTEN')
+            return self.send_json(200, {'scores': load_scores()})
         m = re.fullmatch(r'/api/levels/([2-9A-HJKMNP-Z]{6})', path)
         if not m:
             return self.send_json(404, {'error': 'NICHT GEFUNDEN'})
@@ -228,7 +299,10 @@ class Handler(BaseHTTPRequestHandler):
         self.send_json(200, {'code': m.group(1), 'rows': rows})
 
     def do_POST(self):
-        if self.path.split('?', 1)[0] != '/api/levels':
+        path = self.path.split('?', 1)[0]
+        if path == '/api/scores':
+            return self.post_score()
+        if path != '/api/levels':
             return self.send_json(404, {'error': 'NICHT GEFUNDEN'})
         if self.headers.get_content_type() != 'application/json':
             return self.send_json(415, {'error': 'NUR JSON'})
@@ -256,6 +330,29 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json(507, {'error': 'DER LEVELSPEICHER IST VOLL'})
         self.send_json(201 if new else 200, {'code': code})
 
+    def post_score(self):
+        if self.headers.get_content_type() != 'application/json':
+            return self.send_json(415, {'error': 'NUR JSON'})
+        try:
+            length = int(self.headers.get('Content-Length', ''))
+        except ValueError:
+            return self.send_json(411, {'error': 'LÄNGE FEHLT'})
+        if not 0 < length <= 512:
+            return self.send_json(413, {'error': 'UNGÜLTIGE DATEN'})
+        if not limiter.allow(('score', client_key(self)), LIMIT_SCORE_IP):
+            return self.too_many('ZU VIELE EINTRÄGE - BITTE SPÄTER NOCHMAL')
+        if not limiter.allow(('score', '*'), LIMIT_SCORE_ALL):
+            return self.too_many('HEUTE WERDEN KEINE EINTRÄGE MEHR ANGENOMMEN')
+        try:
+            payload = json.loads(self.rfile.read(length))
+        except (ValueError, UnicodeDecodeError):
+            return self.send_json(400, {'error': 'UNGÜLTIGE DATEN'})
+        res = validate_score(payload)
+        if isinstance(res, str):
+            return self.send_json(400, {'error': res})
+        rank, scores = store_score(*res)
+        self.send_json(201, {'rank': rank, 'scores': scores})
+
 
 def main(argv):
     cmd = argv[1] if len(argv) > 1 else 'serve'
@@ -280,6 +377,18 @@ def main(argv):
             with con:
                 n = con.execute('DELETE FROM levels WHERE code = ?', (code,)).rowcount
             print(f'{code} gelöscht' if n else 'nicht gefunden')
+    elif cmd == 'scores':
+        con = db()
+        rows = con.execute('SELECT id, name, score, levels, created FROM scores ORDER BY score DESC, id ASC').fetchall()
+        for i, (sid, name, score, levels, created) in enumerate(rows, 1):
+            print(f'{i:3}. {name:<10} {score:>8}  Level {levels:<3} ID {sid}  {time.strftime("%d.%m.%Y %H:%M", time.gmtime(created))} UTC')
+        if not rows:
+            print('Bestenliste ist leer')
+    elif cmd == 'delscore' and len(argv) == 3 and argv[2].isdigit():
+        con = db()
+        with con:
+            n = con.execute('DELETE FROM scores WHERE id = ?', (int(argv[2]),)).rowcount
+        print(f'Eintrag {argv[2]} gelöscht' if n else 'nicht gefunden')
     else:
         print(__doc__)
         return 2

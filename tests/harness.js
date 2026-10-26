@@ -39,7 +39,9 @@ function load(apiBase) {
     get p() { return p; }, get state() { return state; }, get mode() { return mode; }, get grid() { return grid; },
     get cam() { return cam; }, get shots() { return shots; }, get dyn() { return dyn; }, get chick() { return chick; },
     get score() { return score; }, get lives() { return lives; }, get curCode() { return curCode; },
-    SPR, SKINS, get schnitzel() { return schnitzel; }, get schFx() { return schFx; } };
+    SPR, SKINS, get schnitzel() { return schnitzel; }, get schFx() { return schFx; },
+    board, qualifies, finishGame, set score(v) { score = v; }, get nm() { return nm; },
+    get lvlT() { return lvlT; }, set lvlT(v) { lvlT = v; }, get lastTimeBonus() { return lastTimeBonus; }, parTime };
   requestAnimationFrame(frame);
 })();`;
   const before = src;

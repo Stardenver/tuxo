@@ -127,6 +127,44 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     const empty = T.genLevel(100, false).map((r) => r.join('')).join('');
     ok(!/[XDLbswATR+*]/.test(empty), 'ZUFALL LEER enthält keine Hindernisse, Monster oder Gegenstände');
 
+    console.log('Zeitwertung');
+    T.startGame(); run(2.5);
+    toChick(); run(0.1);
+    const fastBonus = T.lastTimeBonus;
+    ok(fastBonus > 0, `schnell geschafft: Zeitbonus ${fastBonus} (Sollzeit ${T.parTime()} s)`);
+    const sBefore = T.score; run(10, () => T.state === 'intro');
+    ok(T.score - sBefore >= fastBonus, 'Zeitbonus wird in der Bonuszählung gutgeschrieben');
+    run(2.5); T.lvlT = T.parTime() + 5; toChick(); run(0.1);
+    ok(T.lastTimeBonus === 0, 'über der Sollzeit: kein Zeitbonus');
+    T.setState('title'); step();
+
+    console.log('Bestenliste');
+    await wait(() => T.board.status !== 'loading');
+    ok(T.board.status === 'ok' && T.board.list.length === 0, 'Bestenliste beim Start geladen (leer)');
+    T.startGame(); run(0.1); T.score = 4321; T.finishGame();
+    await wait(() => T.board.status !== 'loading');
+    ok(T.qualifies(4321) && !T.qualifies(0), 'genug Punkte für die Liste, 0 Punkte nicht');
+    run(1.6); tap('Enter'); step();
+    ok(T.state === 'nameentry', 'Game Over -> Namenseingabe');
+    for (const c of 'TESTER') tap('Key' + c);
+    step();
+    tap('ArrowUp'); step();
+    ok(T.nm.s === 'TESTERA', `Pfeil hoch hängt ein Zeichen an (${T.nm.s})`);
+    tap('ArrowDown'); step();
+    tap('Enter'); step();
+    await wait(() => T.state !== 'busy');
+    ok(T.state === 'scores' && T.board.mine === 0 && T.board.list[0] && T.board.list[0].name === 'TESTER' && T.board.list[0].score === 4321,
+      `Eintrag gespeichert und markiert (${JSON.stringify(T.board.list[0])})`);
+    run(1.1); tap('Enter'); step();
+    ok(T.state === 'title', 'Bestenliste -> Titelmenü');
+    run(26);
+    ok(T.state === 'scores' && T.board.attract, 'Leerlauf im Titel zeigt die Bestenliste');
+    run(11);
+    ok(T.state === 'title', '... und kehrt von selbst zurück');
+    clickAt(...mid(T.menuRects()[3])); release();
+    ok(T.state === 'scores', 'Menüpunkt BESTENLISTE');
+    T.setState('title'); step();
+
     console.log('Editor, Teilen, Laden');
     T.setState('title'); step();
     clickAt(...mid(T.menuRects()[1])); release();

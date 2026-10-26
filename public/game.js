@@ -398,12 +398,14 @@
 
   // ---------- Eingabe ----------
   const keys = Object.create(null), hit = Object.create(null), typed = [];
+  let inputSeen = false; // irgendeine Eingabe seit dem letzten Schritt (Titelmenü: Leerlauf zurücksetzen)
   const GAME_KEYS = ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Space', 'Enter', 'KeyP', 'KeyM', 'Escape'];
   addEventListener('keydown', (e) => {
     if (GAME_KEYS.includes(e.code)) e.preventDefault();
-    if (state === 'codeinput' && e.code === 'Backspace') e.preventDefault();
+    if ((state === 'codeinput' || state === 'nameentry') && e.code === 'Backspace') e.preventDefault();
     if (!keys[e.code]) hit[e.code] = true;
     keys[e.code] = true;
+    inputSeen = true;
     if ((e.ctrlKey || e.metaKey) && e.code === 'KeyZ') { hit.Undo = true; e.preventDefault(); }
     else if (!e.ctrlKey && !e.metaKey && !e.altKey && e.key && (e.key.length === 1 || e.key === 'Backspace')) typed.push(e.key);
     if (state === 'title' && e.key && e.key.length === 1) cheatKey(e.key.toUpperCase());
@@ -433,7 +435,7 @@
     document.body.classList.add('touch');
     touchUI.querySelectorAll('[data-key]').forEach((b) => {
       const code = b.dataset.key;
-      const on = (e) => { e.preventDefault(); Sound.init(); if (!keys[code]) hit[code] = true; keys[code] = true; b.classList.add('on'); };
+      const on = (e) => { e.preventDefault(); Sound.init(); if (!keys[code]) hit[code] = true; keys[code] = true; inputSeen = true; b.classList.add('on'); };
       const off = (e) => { e.preventDefault(); keys[code] = false; b.classList.remove('on'); };
       b.addEventListener('pointerdown', on);
       b.addEventListener('pointerup', off);
@@ -449,12 +451,12 @@
     mouse.y = ((e.clientY - r.top) * H) / r.height;
   }
   cv.addEventListener('pointerdown', (e) => {
-    Sound.init(); toGame(e);
+    Sound.init(); toGame(e); inputSeen = true;
     mouse.down = true; mouse.button = e.button;
     if (e.button === 2) mouse.rclicked = true; else mouse.clicked = true;
     try { cv.setPointerCapture(e.pointerId); } catch (err) { /* egal */ }
   });
-  cv.addEventListener('pointermove', (e) => { toGame(e); mouse.moved = true; });
+  cv.addEventListener('pointermove', (e) => { toGame(e); mouse.moved = true; inputSeen = true; });
   cv.addEventListener('pointerup', () => { mouse.down = false; });
   cv.addEventListener('pointercancel', () => { mouse.down = false; });
   cv.addEventListener('contextmenu', (e) => e.preventDefault());
@@ -585,6 +587,11 @@
   let levelIdx = 0, round = 0, score = 0, lives = 3, nextLife = 20000;
   let hiscore = parseInt(store.get('tuxo-hiscore') || '0', 10) || 0;
   let p, cam, enemies, shots, pickups, hints, dyn, particles, crumbles, chick, shake, flash, popups, respawn, checkpoint, tally;
+  // Zeitwertung: Sollzeit 0,8 s pro Spalte, jede Sekunde darunter bringt TIME_PTS Punkte
+  let lvlT = 0, lastTimeBonus = 0;
+  const PAR_PER_COL = 0.8, TIME_PTS = 20;
+  const parTime = () => Math.round(lvlW * PAR_PER_COL);
+  const clock = (sec) => { const t = Math.floor(sec); return Math.floor(t / 60) + ':' + String(t % 60).padStart(2, '0'); };
   const START_DYN = 6, MAX_DYN = 9;
 
   function newPlayer(x, y) {
@@ -602,7 +609,7 @@
     let acc = 0;
     for (const s of L.segments) { segStarts.push(acc); acc += s[0].length; }
     enemies = []; shots = []; pickups = []; hints = []; particles = []; crumbles = []; popups = [];
-    dyn = null; chick = null; shake = 0; flash = 0;
+    dyn = null; chick = null; shake = 0; flash = 0; lvlT = 0;
     const speed = 1 + round * 0.25;
     let start = null;
     for (let ty = 0; ty < ROWS; ty++) for (let tx = 0; tx < lvlW; tx++) {
@@ -925,7 +932,8 @@
       Sound.setJet(0);
       sfx.clear();
       burst(chick.x + 5, chick.y, 20, ['#ff6080', '#ffffff', '#ffd050'], { max: 80, up: 60, g: 80, life: 1.2 });
-      tally = { energy: Math.floor(p.energy), dyn: p.dyn, t: 0, phase: 0 };
+      lastTimeBonus = Math.max(0, Math.floor(parTime() - lvlT)) * TIME_PTS;
+      tally = { energy: Math.floor(p.energy), dyn: p.dyn, time: lvlT, par: parTime(), tb: lastTimeBonus, tbShown: lastTimeBonus, t: 0, phase: 0 };
       setState('clear');
     }
   }
@@ -1385,16 +1393,17 @@
   // ---------- Teilen und Laden ----------
   let codeBuf = '', codeErr = '', busyText = '';
   const errText = (e) => (e instanceof TypeError || (e && e.name === 'AbortError') ? 'KEINE VERBINDUNG ZUM SERVER' : String((e && e.message) || e).toUpperCase());
-  async function api(path, opts = {}) {
+  async function request(url, opts = {}) {
     const ctl = new AbortController(), t = setTimeout(() => ctl.abort(), 10000);
     try {
-      const r = await fetch(API + path, { ...opts, signal: ctl.signal });
+      const r = await fetch(url, { ...opts, signal: ctl.signal });
       let j = {};
       try { j = await r.json(); } catch (e) { /* kein JSON */ }
       if (!r.ok) throw new Error(j.error || 'SERVERFEHLER (' + r.status + ')');
       return j;
     } finally { clearTimeout(t); }
   }
+  const api = (path, opts) => request(API + path, opts);
   function shareLevel(rows) {
     busyText = 'SPEICHERE LEVEL ...';
     setState('busy');
@@ -1504,6 +1513,120 @@
     drawText(busyText, W / 2, 130, '#ffffff', 2, 'center');
   }
 
+  // ---------- Bestenliste (global, über die Level-API) ----------
+  const SCORES_API = '/api/scores';
+  const NAME_MAX = 10, NAME_CHARS = ' ABCDEFGHIJKLMNOPQRSTUVWXYZÄÖÜ0123456789.-!'; // wie NAME_RE in api/app.py
+  const ROW_COLS = ['#ff4040', '#ff9020', '#ffe040', '#a0ff40', '#40ff90', '#40e0ff', '#4090ff', '#a070ff', '#ff60e0', '#ffffff'];
+  const board = { status: 'idle', list: [], err: '', mine: -1, attract: false, fromGame: false };
+  let nm = { s: '', i: 0, err: '' };
+  const pad6 = (n) => String(n).padStart(6, '0');
+  function fetchScores() {
+    board.status = 'loading';
+    request(SCORES_API)
+      .then((j) => { board.list = Array.isArray(j.scores) ? j.scores.slice(0, 10) : []; board.status = 'ok'; })
+      .catch((e) => { board.status = 'error'; board.err = errText(e); });
+  }
+  const qualifies = (pts) => pts > 0 && (board.list.length < 10 || pts > board.list[board.list.length - 1].score);
+  function showScores(attract, fresh) {
+    board.attract = attract; board.fromGame = !attract && !fresh; board.mine = -1;
+    if (fresh) fetchScores();
+    setState('scores');
+  }
+  function updateScores() {
+    if ((stateT > 1 && (consume('Enter', 'Space', 'Escape') || click)) || stateT > (board.attract ? 10 : 30)) setState('title');
+  }
+
+  // Namenseingabe wie am Automaten: hoch/runter wählt das Zeichen, links/rechts die Stelle; Tippen geht auch
+  const nameButtons = () => rowButtons(['EINTRAGEN', 'ÜBERSPRINGEN'], 196);
+  function enterName() {
+    const s = (store.get('tuxo-name') || '').toUpperCase().split('').filter((c) => NAME_CHARS.includes(c)).join('').slice(0, NAME_MAX);
+    nm = { s, i: Math.min(s.length, NAME_MAX - 1), err: '' };
+    typed.length = 0;
+    setState('nameentry');
+    sfx.life();
+  }
+  function setNameChar(c) { const a = nm.s.split(''); a[nm.i] = c; nm.s = a.join(''); nm.err = ''; }
+  function updateNameEntry() {
+    for (const k of typed) {
+      if (k === 'Backspace') {
+        if (nm.i > 0) { nm.s = nm.s.slice(0, nm.i - 1) + nm.s.slice(nm.i); nm.i--; }
+        continue;
+      }
+      const c = k.toUpperCase();
+      if (NAME_CHARS.includes(c) && (nm.i < nm.s.length || nm.s.length < NAME_MAX)) { setNameChar(c); nm.i = Math.min(nm.i + 1, NAME_MAX - 1); }
+    }
+    typed.length = 0;
+    const cycle = (d) => setNameChar(NAME_CHARS[(NAME_CHARS.indexOf(nm.s[nm.i] || ' ') + d + NAME_CHARS.length) % NAME_CHARS.length]);
+    if (consume('ArrowUp')) cycle(1);
+    if (consume('ArrowDown')) cycle(-1);
+    if (consume('ArrowLeft')) nm.i = Math.max(0, nm.i - 1);
+    if (consume('ArrowRight')) nm.i = Math.min(nm.s.length, nm.i + 1, NAME_MAX - 1);
+    const bs = nameButtons();
+    if (consume('Escape') || (click && inRect(mouse, bs[1]))) { showScores(false, false); return; }
+    if (consume('Enter') || (isTouch && consume('Space')) || (click && inRect(mouse, bs[0]))) submitName();
+    consume('Space'); // auf der Tastatur ist die Leertaste ein Zeichen (kommt über typed)
+  }
+  function submitName() {
+    const name = nm.s.split(' ').filter(Boolean).join(' ');
+    if (!name) { nm.err = 'BITTE GIB EINEN NAMEN EIN'; return; }
+    store.set('tuxo-name', name);
+    busyText = 'TRAGE DICH EIN ...';
+    setState('busy');
+    request(SCORES_API, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, score, levels: levelIdx }) })
+      .then((j) => {
+        board.list = Array.isArray(j.scores) ? j.scores : []; board.status = 'ok';
+        board.attract = false; board.fromGame = true; board.mine = j.rank ? j.rank - 1 : -1;
+        setState('scores');
+        sfx.clear();
+      })
+      .catch((e) => { nm.err = errText(e); setState('nameentry'); });
+  }
+  function drawNameEntry() {
+    drawBackdrop();
+    ctx.fillStyle = 'rgba(6,3,12,0.6)'; ctx.fillRect(0, 0, W, H);
+    panel(36, 190);
+    drawText('NEUER EINTRAG IN DER BESTENLISTE!', W / 2, 48, '#ffd050', 2, 'center');
+    drawText('PUNKTE ' + pad6(score), W / 2, 70, '#ffffff', 2, 'center');
+    drawText('DEIN NAME:', W / 2, 94, '#9a8ac0', 1, 'center');
+    for (let i = 0; i < NAME_MAX; i++) {
+      const x = Math.round(W / 2 - 110 + i * 22), y = 106, cur = i === nm.i;
+      ctx.fillStyle = cur ? '#2c2040' : '#1c1428'; ctx.fillRect(x, y, 18, 24);
+      ctx.fillStyle = cur && (time * 3 | 0) % 2 ? '#ffe060' : '#6a5a8a'; ctx.fillRect(x, y + 23, 18, 1);
+      if (nm.s[i] && nm.s[i] !== ' ') drawText(nm.s[i], x + 9, y + 5, cur ? '#ffe060' : '#ffffff', 3, 'center');
+    }
+    drawText(isTouch ? 'HOCH/RUNTER: ZEICHEN   LINKS/RECHTS: STELLE   BOOM: FERTIG'
+      : 'NAMEN TIPPEN ODER PFEILTASTEN   ENTER: FERTIG', W / 2, 146, '#8878a8', 1, 'center');
+    if (nm.err) drawText(nm.err, W / 2, 164, '#ff6050', 1, 'center');
+    else drawText('DER NAME IST FÜR ALLE SPIELER SICHTBAR', W / 2, 164, '#665588', 1, 'center');
+    nameButtons().forEach(drawButton);
+  }
+  function drawScores() {
+    drawBackdrop();
+    ctx.fillStyle = 'rgba(6,3,12,0.55)'; ctx.fillRect(0, 0, W, H);
+    logo(W / 2, 12, 5, 'BESTENLISTE');
+    drawText('PLATZ', 128, 50, '#9a8ac0', 1, 'right', null);
+    drawText('NAME', 142, 50, '#9a8ac0', 1, 'left', null);
+    drawText('PUNKTE', 352, 50, '#9a8ac0', 1, 'right', null);
+    if (board.status === 'loading' && !board.list.length) drawText('LADE ...', W / 2, 120, '#c8c0e0', 2, 'center');
+    else if (board.status === 'error') {
+      drawText('BESTENLISTE NICHT ERREICHBAR', W / 2, 110, '#ff6050', 2, 'center');
+      drawText(board.err, W / 2, 130, '#c8c0e0', 1, 'center');
+    } else {
+      for (let i = 0; i < 10; i++) {
+        const e = board.list[i], y = 62 + i * 15, mine = i === board.mine;
+        const col = mine && (time * 6 | 0) % 2 ? '#ffffff' : ROW_COLS[i];
+        ctx.globalAlpha = e ? 1 : 0.3;
+        drawText((i + 1) + '.', 128, y, col, 2, 'right');
+        drawText(e ? e.name : '----------', 142, y, col, 2);
+        drawText(pad6(e ? e.score : 0), 352, y, col, 2, 'right');
+        ctx.globalAlpha = 1;
+        if (mine) { drawText('>', 104 - (time * 4 | 0) % 2 * 2, y, '#ffffff', 2, 'right'); drawText('<', 362 + (time * 4 | 0) % 2 * 2, y, '#ffffff', 2); }
+      }
+    }
+    if (board.fromGame && board.mine < 0) drawText('DEINE PUNKTE ' + pad6(score), W / 2, 220, '#f0c040', 1, 'center');
+    if ((time * 2 | 0) % 2) drawText(isTouch ? 'TIPPEN ZUM WEITERMACHEN' : 'ENTER ODER LEERTASTE', W / 2, 240, '#c8c0e0', 1, 'center');
+  }
+
   // ---------- Schnitzel-Modus (Easter Egg) ----------
   // IDDQDIDKFA im Titelmenü schaltet um; gilt für diesen Browser (localStorage)
   const CHEAT = 'IDDQDIDKFA';
@@ -1604,11 +1727,13 @@
   }
 
   // ---------- Titelmenü und Pause ----------
-  const MENU = ['SPIELEN', 'LEVEL-EDITOR', 'LEVEL-CODE EINGEBEN'];
+  const MENU = ['SPIELEN', 'LEVEL-EDITOR', 'LEVEL-CODE EINGEBEN', 'BESTENLISTE'];
   let menuSel = 0;
-  const menuRects = () => MENU.map((l, i) => { const w = textWidth(l, 2) + 20; return { x: Math.round(W / 2 - w / 2), y: 128 + i * 19, w, h: 16 }; });
+  const menuRects = () => MENU.map((l, i) => { const w = textWidth(l, 2) + 20; return { x: Math.round(W / 2 - w / 2), y: 124 + i * 17, w, h: 16 }; });
   function updateTitle(dt) {
     if (schFx) { updateSchnitzelFx(dt); return; }
+    if (inputSeen) { inputSeen = false; stateT = 0; }
+    if (stateT > 25) { showScores(true, true); return; } // wie am Automaten: im Leerlauf die Bestenliste zeigen
     if (consume('ArrowUp', 'KeyW')) menuSel = (menuSel + MENU.length - 1) % MENU.length;
     if (consume('ArrowDown', 'KeyS')) menuSel = (menuSel + 1) % MENU.length;
     const rs = menuRects();
@@ -1618,7 +1743,8 @@
     if (!go) return;
     if (menuSel === 0) startGame();
     else if (menuSel === 1) enterEditor();
-    else openCodeInput();
+    else if (menuSel === 2) openCodeInput();
+    else showScores(false, true);
   }
   const pauseButtons = () => rowButtons(['WEITER', mode === 'test' ? 'ZUM EDITOR' : 'AUFGEBEN'], 150);
   function updatePause() {
@@ -1640,15 +1766,17 @@
     stateT += dt;
     click = mouse.clicked; rclick = mouse.rclicked;
     mouse.clicked = mouse.rclicked = false;
-    if (state !== 'codeinput') typed.length = 0;
+    if (state !== 'codeinput' && state !== 'nameentry') typed.length = 0;
     if (state !== 'editor') mouse.wheel = 0;
-    if (state !== 'codeinput' && consume('KeyM')) Sound.toggleMute();
+    if (state !== 'codeinput' && state !== 'nameentry' && consume('KeyM')) Sound.toggleMute();
     switch (state) {
       case 'title': updateTitle(dt); break;
       case 'editor': updateEditor(dt); break;
       case 'share': updateShare(); break;
       case 'codeinput': updateCodeInput(); break;
       case 'customdone': updateCustomDone(); break;
+      case 'nameentry': updateNameEntry(); break;
+      case 'scores': updateScores(); break;
       case 'busy': break;
       case 'intro':
         updateParticles(dt);
@@ -1656,6 +1784,7 @@
         break;
       case 'play':
         if (paused) { updatePause(); return; }
+        lvlT += dt;
         if (mode === 'test' && consume('Escape')) { enterEditor(); break; }
         if (consume('KeyP', 'Escape')) { paused = true; Sound.setJet(0); return; }
         updatePlayer(dt);
@@ -1670,6 +1799,7 @@
         updateCamera(dt);
         break;
       case 'dying':
+        lvlT += dt;
         updateDynamite(dt); updateCrumbles(dt); updateEnemies(dt); updateShots(dt); updateParticles(dt);
         if (stateT > 1.8) {
           if (mode !== 'test') lives--;
@@ -1694,7 +1824,11 @@
         } else if (tally.phase === 2 && tally.t > 0.3) {
           if (tally.dyn > 0) { tally.dyn--; addScore(50); sfx.tally(); tally.t = 0.05; }
           else { tally.phase = 3; tally.t = 0; }
-        } else if (tally.phase === 3 && tally.t > 1.6) {
+        } else if (tally.phase === 3 && tally.t > 0.3) {
+          const n = Math.min(tally.tb, 40);
+          if (n > 0) { tally.tb -= n; addScore(n); if ((time * 30 | 0) % 2) sfx.tally(); }
+          else { tally.phase = 4; tally.t = 0; }
+        } else if (tally.phase === 4 && tally.t > 1.6) {
           if (mode === 'test') { ed.verified = curRows.join('\n'); enterEditor(); edMsg('GESCHAFFT! JETZT KANNST DU DAS LEVEL TEILEN'); break; }
           if (mode === 'custom') { setState('customdone'); break; }
           levelIdx++;
@@ -1709,8 +1843,8 @@
         if (stateT > 9) { loadLevel(levelIdx); setState('intro'); }
         break;
       case 'gameover':
-        if (stateT > 1.5 && (consume('Enter', 'Space') || click)) setState('title');
-        if (stateT > 10) setState('title');
+        // weiter erst, wenn die Bestenliste geladen ist (oder der Abruf scheiterte)
+        if (board.status !== 'loading' && ((stateT > 1.5 && (consume('Enter', 'Space') || click)) || stateT > 10)) afterGameOver();
         break;
     }
   }
@@ -1719,7 +1853,13 @@
     Sound.setJet(0);
     sfx.over();
     if (mode === 'campaign' && score > hiscore) { hiscore = score; store.set('tuxo-hiscore', String(hiscore)); }
+    if (mode === 'campaign') fetchScores();
     setState('gameover');
+  }
+  function afterGameOver() {
+    if (mode !== 'campaign') setState('title');
+    else if (board.status === 'ok' && qualifies(score)) enterName();
+    else showScores(false);
   }
 
   // ---------- Zeichnen ----------
@@ -1856,21 +1996,26 @@
     const d = p ? p.dyn : START_DYN;
     for (let i = 0; i < d; i++) ctx.drawImage(SPR.dynIcon, 208 + i * 5, 4);
     for (let i = 0; i < Math.min(lives, 6); i++) ctx.drawImage(SPR.life, 262 + i * 9, 4);
+    drawText('ZEIT', 322, 5, '#9a8ac0', 1, 'left', null);
+    drawText(clock(lvlT), 341, 5, lvlW && lvlT > parTime() ? '#ff8060' : '#ffffff', 1, 'left', null);
     drawText(mode === 'campaign' ? 'LEVEL ' + (levelIdx % LEVELS.length + 1) : mode === 'test' ? 'TESTLAUF' : 'CODE ' + curCode, W - 4, 5, '#ffffff', 1, 'right', null);
     if (round > 0) drawText('RUNDE ' + (round + 1), W - 48, 5, '#f0c040', 1, 'right', null);
   }
 
-  function logo(x, y, sc) {
-    const s = 'T.U.X.O.';
+  function logo(x, y, sc, s = 'T.U.X.O.') {
     const c = canvas(textWidth(s, sc) + sc, 5 * sc + sc), g = c.getContext('2d');
     // Schrift in eigenen Puffer, dann mit Rasterstreifen einfärben (C64-Stil)
     drawInto(g, s, sc);
-    g.globalCompositeOperation = 'source-in';
+    // Streifen erst in eigenen Puffer: Chrome wendet source-in bei fillRect auf die ganze Fläche an
+    // (jede Zeile würde die vorherigen löschen), drawImage über die volle Fläche ist überall gleich
+    const st = canvas(c.width, c.height), sg = st.getContext('2d');
     const cols = ['#ffe060', '#ffb020', '#ff7020', '#e04020', '#c02060', '#8030a0', '#4050c0', '#30a0e0'];
     for (let yy = 0; yy < c.height; yy++) {
-      g.fillStyle = cols[Math.floor((yy / 3 + time * 6)) % cols.length];
-      g.fillRect(0, yy, c.width, 1);
+      sg.fillStyle = cols[Math.floor((yy / 3 + time * 6)) % cols.length];
+      sg.fillRect(0, yy, c.width, 1);
     }
+    g.globalCompositeOperation = 'source-in';
+    g.drawImage(st, 0, 0);
     const sh = silhouette(c, '#000');
     ctx.drawImage(sh, x - c.width / 2 + sc, y + sc);
     ctx.drawImage(c, x - c.width / 2, y);
@@ -1885,7 +2030,7 @@
     }
   }
 
-  function drawTitle() {
+  function drawBackdrop() {
     ctx.fillStyle = '#0c0814'; ctx.fillRect(0, 0, W, H);
     for (let x = -64; x < W + 64; x += 64) for (let y = 0; y < H; y += 64) ctx.drawImage(bgTile, x - Math.round(time * 10) % 64, y);
     ctx.fillStyle = 'rgba(8,4,14,0.55)'; ctx.fillRect(0, 0, W, H);
@@ -1897,6 +2042,9 @@
         ctx.fillRect(0, Math.round(y + j * 2), W, 2);
       }
     }
+  }
+  function drawTitle() {
+    drawBackdrop();
     logo(W / 2, 22, 9);
     drawText(schnitzel ? 'EIN HÖHLENABENTEUER MIT SCHNITZEL' : 'EIN HÖHLENABENTEUER MIT TUX', W / 2, 82, '#f0c040', 1, 'center');
     // Tux fliegt durchs Bild
@@ -1915,9 +2063,10 @@
       drawText(MENU[i], W / 2, r.y + 3, sel ? '#ffe060' : '#c8c0e0', 2, 'center');
       if (sel && (time * 3 | 0) % 2) { drawText('>', r.x - 4, r.y + 3, '#ffe060', 2, 'right'); drawText('<', r.x + r.w + 4, r.y + 3, '#ffe060', 2); }
     });
-    lines.forEach((l, i) => drawText(l, W / 2, 190 + i * 10, '#9a8ac0', 1, 'center'));
-    drawText('HIGHSCORE ' + String(hiscore).padStart(6, '0'), W / 2, 228, '#50d050', 1, 'center');
-    drawText('RETTE DIE PINGUIN-KÜKEN AUS DEN TIEFEN DES BERGES', W / 2, 244, '#8878a8', 1, 'center');
+    lines.forEach((l, i) => drawText(l, W / 2, 196 + i * 10, '#9a8ac0', 1, 'center'));
+    const best = board.list[0];
+    drawText((best ? 'REKORD ' + pad6(best.score) + ' ' + best.name + '    ' : '') + 'DEIN BESTES ' + pad6(hiscore), W / 2, 232, '#50d050', 1, 'center');
+    drawText('RETTE DIE PINGUIN-KÜKEN AUS DEN TIEFEN DES BERGES', W / 2, 246, '#8878a8', 1, 'center');
     drawText(Sound.muted ? 'TON AUS' : 'TON AN', W - 6, H - 10, '#665588', 1, 'right', null);
     if (schFx && state === 'title') drawSchnitzelFx();
   }
@@ -1938,10 +2087,12 @@
     if (state === 'share') { drawShare(); return; }
     if (state === 'codeinput') { drawCodeInput(); return; }
     if (state === 'busy') { drawBusy(); return; }
+    if (state === 'nameentry') { drawNameEntry(); return; }
+    if (state === 'scores') { drawScores(); return; }
     if (state === 'gameover' && stateT > 0.6) {
       drawTitle();
       dim(0.75);
-      box(['GAME OVER', '', 'PUNKTE ' + score, mode !== 'campaign' ? '' : score >= hiscore && score > 0 ? 'NEUER HIGHSCORE!' : 'HIGHSCORE ' + hiscore, '', 'ENTER ODER LEERTASTE'],
+      box(['GAME OVER', '', 'PUNKTE ' + score, mode !== 'campaign' ? '' : board.status === 'loading' ? 'LADE BESTENLISTE ...' : board.status === 'ok' && qualifies(score) ? 'DU KOMMST IN DIE BESTENLISTE!' : 'DEIN BESTES ' + hiscore, '', 'ENTER ODER LEERTASTE'],
         ['#ff5050', '', '#fff', '#50d050', '', '#c8c0e0']);
       return;
     }
@@ -1970,8 +2121,9 @@
       drawText(p.deathReason, W / 2, 120, '#ff6050', 2, 'center');
     } else if (state === 'clear') {
       dim(0.5);
-      box(['KÜKEN GERETTET!', '', 'ENERGIE-BONUS  ' + tally.energy * 10, 'DYNAMIT-BONUS  ' + tally.dyn * 50, '', 'PUNKTE ' + score],
-        ['#ffd050', '', '#50d050', '#ff9060', '', '#ffffff']);
+      box(['KÜKEN GERETTET!', '', 'ENERGIE-BONUS  ' + tally.energy * 10, 'DYNAMIT-BONUS  ' + tally.dyn * 50,
+        'ZEIT ' + clock(tally.time) + ' (SOLL ' + clock(tally.par) + ')  ZEIT-BONUS  ' + tally.tbShown, '', 'PUNKTE ' + score],
+        ['#ffd050', '', '#50d050', '#ff9060', '#60d0ff', '', '#ffffff']);
     } else if (state === 'gameover') {
       dim(stateT);
     } else if (state === 'customdone') {
@@ -2018,6 +2170,7 @@
     if (/^[2-9A-HJKMNP-Z]{6}$/i.test(h)) loadByCode(h.toUpperCase());
   }
   setSkin(store.get('tuxo-schnitzel') === '1');
+  fetchScores();
   addEventListener('hashchange', fromHash);
   fromHash();
   requestAnimationFrame(frame);

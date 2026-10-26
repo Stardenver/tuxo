@@ -3,7 +3,8 @@
 Ein Höhlenabenteuer im 8-Bit-Stil, frei nach dem C64-Klassiker H.E.R.O.: Tux fliegt mit dem Jetpack
 durch Höhlen, sprengt Wände, Türen und Monster mit Dynamit und rettet Pinguin-Küken.
 
-Läuft als statische Seite im Browser; zum Teilen eigener Level gehört eine kleine API dazu.
+Läuft als statische Seite im Browser; zum Teilen eigener Level und für die globale Bestenliste gehört eine
+kleine API dazu.
 
 ## Steuerung
 
@@ -18,6 +19,17 @@ Läuft als statische Seite im Browser; zum Teilen eigener Level gehört eine kle
 
 Auf Touch-Geräten erscheinen Bildschirmknöpfe.
 
+## Punkte und Bestenliste
+
+Punkte gibt es für Monster, Wände, Edelsteine und am Levelende für übrige Energie und übriges Dynamit.
+Dazu kommt ein **Zeitbonus**: Jedes Level hat eine Sollzeit (0,8 Sekunden pro Spalte), jede Sekunde
+darunter bringt 20 Punkte. Die Uhr läuft oben im Bild und wird rot, sobald die Sollzeit vorbei ist.
+
+Nach dem Game Over erscheint die **Bestenliste** mit den zehn besten Spielern, wie am Automaten.
+Wer genug Punkte für die Liste hat, gibt seinen Namen ein (bis zu 10 Zeichen: A–Z, ÄÖÜ, 0–9, Leerzeichen
+und `.-!`). Die Liste gilt für alle Spieler; im Titelmenü steht sie unter **BESTENLISTE** und erscheint
+auch von selbst, wenn niemand spielt.
+
 ## Level-Editor
 
 Im Titelmenü unter **LEVEL-EDITOR**: mit der Maus malen (links: Werkzeug, rechts: graben), Mausrad zum Scrollen,
@@ -31,8 +43,9 @@ Nach einem erfolgreichen Testlauf erzeugt **TEILEN** einen 6-stelligen Code; üb
 public/          statische Seite, ohne Build-Schritt und ohne externe Abhängigkeiten
   game.js        Engine: Canvas 480×270, Pixelschrift, Sprites als Zeichenketten, WebAudio-Töne, Editor
   levels.js      Kampagnen-Level (Legende oben in der Datei)
-api/             Level-API zum Teilen (nur Python-Standardbibliothek + SQLite)
-  app.py         POST /api/levels -> Code, GET /api/levels/CODE -> Level
+api/             Level-API zum Teilen und Bestenliste (nur Python-Standardbibliothek + SQLite)
+  app.py         POST /api/levels -> Code, GET /api/levels/CODE -> Level,
+                 GET /api/scores -> Top 10, POST /api/scores -> Eintrag
 tests/           Prüfungen mit Node: node tests/run.js
 ```
 
@@ -41,7 +54,8 @@ Die Level-Prüfung existiert zweimal und muss übereinstimmen: `checkRows()` in 
 Küken erreichbar). Level enthalten bewusst keinen Freitext.
 
 Die API begrenzt Uploads pro Anschluss und insgesamt, speichert keine IP-Adressen und gibt gleichen
-Leveln denselben Code. Moderation: `python app.py show CODE` / `python app.py delete CODE`.
+Leveln denselben Code. Moderation: `python app.py show CODE` / `python app.py delete CODE`,
+für die Bestenliste `python app.py scores` / `python app.py delscore ID`.
 
 ## Lokal ausprobieren
 
