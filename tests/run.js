@@ -138,6 +138,35 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     ok(T.lastTimeBonus === 0, 'über der Sollzeit: kein Zeitbonus');
     T.setState('title'); step();
 
+    console.log('Laser nach Edelstein');
+    {
+      const rows = ['#'.repeat(40)];
+      for (let r = 1; r < 13; r++) rows.push('#' + '.'.repeat(38) + '#');
+      rows.push('#.P*' + '.'.repeat(34) + 'C#', '#'.repeat(40), '#'.repeat(40));
+      T.startCustom(rows, 'TEST', false); run(2.5);
+      T.p.face = 1; tap('ShiftLeft'); step();
+      ok(!T.laserUsed && !T.beam, 'ohne Edelstein passiert mit Shift nichts');
+      const gem = T.pickups.find((k) => k.kind !== 'dyn');
+      T.p.x = gem.x; T.p.y = gem.y - 6; step();
+      ok(T.laserReady, 'Edelstein eingesammelt -> Laser bereit');
+      run(1); T.p.face = 1;
+      const ly = T.p.y + 8, bat = (dx, dy = 0) => ({ kind: 'bat', x: T.p.x + dx, y: ly - 3 + dy, w: 14, h: 7, hx: T.p.x + dx, by: ly - 3 + dy, vx: 0, t: 0, pts: 50 });
+      const b1 = bat(40), b2 = bat(90), b3 = bat(200), b4 = bat(60, -40);
+      T.enemies.push(b1, b2, b3, b4);
+      T.grid[Math.floor(ly / 16)][Math.floor((T.p.x + 150) / 16)] = '#';
+      const s0 = T.score; tap('ShiftLeft'); step();
+      ok(b1.dead && b2.dead, 'Laser trifft alle Monster in der Linie');
+      ok(!b3.dead, 'Hindernis stoppt den Laser');
+      ok(!b4.dead, 'Monster außerhalb der Linie bleiben verschont');
+      ok(T.score - s0 >= 100 && T.beam && T.laserUsed, 'Punkte für die Treffer, Strahl sichtbar');
+      run(0.5);
+      T.p.x = gem.x; tap('ShiftLeft'); step();
+      ok(!T.beam, 'nur einmal pro Level');
+      T.loadLevel(0); step();
+      ok(!T.laserUsed && !T.laserReady, 'neues Level: Laser erst wieder nach einem Edelstein');
+      T.setState('title'); step();
+    }
+
     console.log('Bestenliste');
     await wait(() => T.board.status !== 'loading');
     ok(T.board.status === 'ok' && T.board.list.length === 0, 'Bestenliste beim Start geladen (leer)');

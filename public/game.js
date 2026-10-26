@@ -589,6 +589,8 @@
   let p, cam, enemies, shots, pickups, hints, dyn, particles, crumbles, chick, shake, flash, popups, respawn, checkpoint, tally;
   // Zeitwertung: Sollzeit 0,8 s pro Spalte, jede Sekunde darunter bringt TIME_PTS Punkte
   let lvlT = 0, lastTimeBonus = 0;
+  // Überraschung: nach einem Edelstein einmal pro Level ein Laser mit Shift (keine Anzeige, kein Hinweis)
+  let laserReady = false, laserUsed = false, beam = null;
   const PAR_PER_COL = 0.8, TIME_PTS = 20;
   const parTime = () => Math.round(lvlW * PAR_PER_COL);
   const clock = (sec) => { const t = Math.floor(sec); return Math.floor(t / 60) + ':' + String(t % 60).padStart(2, '0'); };
@@ -610,6 +612,7 @@
     for (const s of L.segments) { segStarts.push(acc); acc += s[0].length; }
     enemies = []; shots = []; pickups = []; hints = []; particles = []; crumbles = []; popups = [];
     dyn = null; chick = null; shake = 0; flash = 0; lvlT = 0;
+    laserReady = laserUsed = false; beam = null;
     const speed = 1 + round * 0.25;
     let start = null;
     for (let ty = 0; ty < ROWS; ty++) for (let tx = 0; tx < lvlW; tx++) {
@@ -833,6 +836,26 @@
     }
   }
 
+  // ---------- Laser ----------
+  function fireLaser() {
+    if (!laserReady || laserUsed) return;
+    laserReady = false; laserUsed = true;
+    const dir = p.face > 0 ? 1 : -1, y = p.y + (p.duck ? 4 : 8), ty = Math.floor(y / TS);
+    const x0 = dir > 0 ? p.x + p.w : p.x;
+    const edge = dir > 0 ? cam.x + W : cam.x;
+    let x1 = edge, hitWall = false;
+    for (let tx = Math.floor(x0 / TS); dir > 0 ? tx * TS < edge : (tx + 1) * TS > edge; tx += dir) {
+      if (SOLID[tileAt(tx, ty)]) { x1 = dir > 0 ? Math.max(x0, tx * TS) : Math.min(x0, (tx + 1) * TS); hitWall = true; break; }
+    }
+    const a = Math.min(x0, x1), b = Math.max(x0, x1);
+    for (const e of enemies) if (!e.dead && e.x < b && e.x + e.w > a && e.y <= y + 1 && e.y + e.h >= y - 1) killEnemy(e);
+    beam = { x0, x1, y, t: 0 };
+    if (hitWall) burst(x1, y, 14, ['#ffffff', '#a0f0ff', '#40c8f0'], { max: 90, life: 0.5 });
+    shake = Math.max(shake, 0.12);
+    Sound.tone(2400, 0.4, { to: 160, type: 'sawtooth', vol: 0.16 });
+    Sound.noise(0.25, { vol: 0.2, freq: 6000, to: 800, type: 'highpass' });
+  }
+
   // ---------- Gegner ----------
   function killEnemy(e) {
     e.dead = true;
@@ -925,7 +948,7 @@
       if (!overlap(p, k)) continue;
       pickups.splice(i, 1);
       if (k.kind === 'dyn') { p.dyn = Math.min(MAX_DYN, p.dyn + 3); sfx.pickup(); popups.push({ x: k.x + 4, y: k.y - 4, text: '+3 DYNAMIT', t: 0 }); }
-      else { sfx.gem(); addScore(250, k.x + 4, k.y - 4); }
+      else { sfx.gem(); addScore(250, k.x + 4, k.y - 4); if (!laserUsed) laserReady = true; }
     }
     if (chick && !chick.saved && overlap(p, chick)) {
       chick.saved = true;
@@ -939,6 +962,7 @@
   }
 
   function updateParticles(dt) {
+    if (beam && (beam.t += dt) > 0.35) beam = null;
     for (let i = particles.length - 1; i >= 0; i--) {
       const q = particles[i];
       q.t += dt;
@@ -1789,6 +1813,7 @@
         if (consume('KeyP', 'Escape')) { paused = true; Sound.setJet(0); return; }
         updatePlayer(dt);
         if (state !== 'play') break;
+        if (consume('ShiftLeft', 'ShiftRight')) fireLaser();
         updateDynamite(dt);
         updateCrumbles(dt);
         updateEnemies(dt);
@@ -1942,6 +1967,15 @@
     drawPlayer();
 
     // Partikel
+    if (beam) {
+      const a = Math.min(beam.x0, beam.x1), w = Math.abs(beam.x1 - beam.x0), f = 1 - beam.t / 0.35, y = Math.round(beam.y);
+      ctx.globalAlpha = f * ((time * 40 | 0) % 2 ? 0.55 : 0.35);
+      ctx.fillStyle = '#40c8f0'; ctx.fillRect(a, y - 2, w, 5);
+      ctx.globalAlpha = f;
+      ctx.fillStyle = '#d0ffff'; ctx.fillRect(a, y - 1, w, 3);
+      ctx.fillStyle = '#ffffff'; ctx.fillRect(a, y, w, 1);
+      ctx.globalAlpha = 1;
+    }
     for (const q of particles) {
       ctx.globalAlpha = q.t > q.life * 0.6 ? 0.6 : 1;
       ctx.fillStyle = q.col;

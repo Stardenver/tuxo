@@ -41,7 +41,9 @@ function load(apiBase) {
     get score() { return score; }, get lives() { return lives; }, get curCode() { return curCode; },
     SPR, SKINS, get schnitzel() { return schnitzel; }, get schFx() { return schFx; },
     board, qualifies, finishGame, set score(v) { score = v; }, get nm() { return nm; },
-    get lvlT() { return lvlT; }, set lvlT(v) { lvlT = v; }, get lastTimeBonus() { return lastTimeBonus; }, parTime };
+    get lvlT() { return lvlT; }, set lvlT(v) { lvlT = v; }, get lastTimeBonus() { return lastTimeBonus; }, parTime,
+    startCustom, get enemies() { return enemies; }, get pickups() { return pickups; },
+    get laserReady() { return laserReady; }, get laserUsed() { return laserUsed; }, get beam() { return beam; } };
   requestAnimationFrame(frame);
 })();`;
   const before = src;
