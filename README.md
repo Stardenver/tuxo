@@ -52,3 +52,11 @@ node tests/run.js                                                     # alle Pr�
 ```
 
 Für das Teilen im Browser muss `/api/*` auf dieselbe Herkunft wie das Spiel zeigen (z. B. per Reverse Proxy).
+
+## Lizenz
+
+Gemeinfrei ([The Unlicense](LICENSE)): Jeder darf mit dem Code machen, was er will – kopieren, ändern,
+weitergeben, verkaufen, auch ohne Namensnennung.
+
+Tux ist das Maskottchen von Linux (ursprünglich von Larry Ewing); die Pixelgrafik hier ist eine eigene
+Umsetzung. H.E.R.O. ist ein Spiel von Activision (1984), das hier nur als Vorbild dient.
