@@ -38,7 +38,8 @@ function load(apiBase) {
     enterEditor, loadByCode, menuRects, ED_BUTTONS, TOOL_RECT, TOOLS,
     get p() { return p; }, get state() { return state; }, get mode() { return mode; }, get grid() { return grid; },
     get cam() { return cam; }, get shots() { return shots; }, get dyn() { return dyn; }, get chick() { return chick; },
-    get score() { return score; }, get lives() { return lives; }, get curCode() { return curCode; } };
+    get score() { return score; }, get lives() { return lives; }, get curCode() { return curCode; },
+    SPR, SKINS, get schnitzel() { return schnitzel; }, get schFx() { return schFx; } };
   requestAnimationFrame(frame);
 })();`;
   const before = src;
@@ -48,5 +49,5 @@ function load(apiBase) {
   return window.__t;
 }
 
-const key = (code, down) => (handlers[down ? 'keydown' : 'keyup'] || []).forEach((f) => f({ code, key: '', preventDefault: noop }));
+const key = (code, down) => (handlers[down ? 'keydown' : 'keyup'] || []).forEach((f) => f({ code, key: /^Key[A-Z]$/.test(code) ? code.slice(3).toLowerCase() : '', preventDefault: noop }));
 module.exports = { load, key, PUBLIC };

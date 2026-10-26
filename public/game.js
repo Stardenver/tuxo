@@ -153,6 +153,56 @@
     '.y...y.',
   ], TUX_PAL), OUTLINE);
 
+  // Schnitzel-Modus (Easter Egg): gleiche Maße und Jetpack-Position wie Tux, damit Flamme und Hitbox passen
+  const SCH_PAL = { k: '#14141e', o: '#c8641c', O: '#eea048', d: '#7a3410', l: '#f8d020', L: '#fff4a0', h: '#3aa03a',
+    w: '#f4f4ee', g: '#8a96a8', r: '#d83020', n: '#3c3c4c', b: '#e0c060' };
+  const SCH_TOP = [
+    '.....h.h......n.',
+    '....hhhh......n.',
+    '...llhhll.....n.',
+    '..lLLhLLlo....n.',
+    '..lLlLlLlood..n.',
+    '..lLLlLLloood.n.',
+    '...lllllooOod.n.',
+    '..ggdkkooookkonb',
+    '.gggwwkoowwkownb',
+    '.grgwkwoowkwwwn.',
+    '.gggdoOoooOowwnn',
+    '.grgdokwwwwkoknn',
+    '.gggdowkwkwkokn.',
+    '.grgdoOodoooOd..',
+    '.grgdooOoodood..',
+    '.gggkdoOooOodk..',
+    '..g...doooood...',
+    '.....kk...kk....',
+    '.....kk...kk....',
+  ];
+  const schSprite = (feet) => pair(outlined(sprite([...SCH_TOP, feet], SCH_PAL), OUTLINE));
+  const SKINS = {
+    tux: { stand: SPR.stand, walk: SPR.walk, fly: SPR.fly, duck: SPR.duck, hurt: SPR.hurt, hurt2: SPR.hurt2, life: SPR.life },
+    schnitzel: {
+      stand: schSprite('....rrrr..rrrr..'),
+      walk: schSprite('...rrrr....rrrr.'),
+      fly: schSprite('.....rrr..rrr...'),
+      duck: pair(outlined(sprite([
+        '.....h.h........',
+        '...lllhhl.......',
+        '..lLlLhLlodd....',
+        '..gglLLlooookd..',
+        '.gggdkkookkokd..',
+        '.grgwkwowkwowwnn',
+        '.gggdoOoooOownnn',
+        '.grgdokwwwkood..',
+        '.gggdooOooOodd..',
+        '....kdddddddk...',
+        '...rrrrr..rrrrr.',
+      ], SCH_PAL), OUTLINE)),
+      life: outlined(sprite(['..h....', '.lloo..', 'lLooooo', 'owkowko', 'ooooooo', 'okwwwko', '.r...r.'], SCH_PAL), OUTLINE),
+    },
+  };
+  SKINS.schnitzel.hurt = SKINS.schnitzel.stand.map((c) => silhouette(c, '#ffffff'));
+  SKINS.schnitzel.hurt2 = SKINS.schnitzel.stand.map((c) => silhouette(c, '#ff4030'));
+
   const BAT_PAL = { m: '#a060d0', M: '#5e2c80', r: '#ff4848' };
   SPR.bat = [sprite([
     'm..............m',
@@ -356,6 +406,7 @@
     keys[e.code] = true;
     if ((e.ctrlKey || e.metaKey) && e.code === 'KeyZ') { hit.Undo = true; e.preventDefault(); }
     else if (!e.ctrlKey && !e.metaKey && !e.altKey && e.key && (e.key.length === 1 || e.key === 'Backspace')) typed.push(e.key);
+    if (state === 'title' && e.key && e.key.length === 1) cheatKey(e.key.toUpperCase());
     Sound.init();
   });
   addEventListener('paste', (e) => {
@@ -1453,11 +1504,111 @@
     drawText(busyText, W / 2, 130, '#ffffff', 2, 'center');
   }
 
+  // ---------- Schnitzel-Modus (Easter Egg) ----------
+  // IDDQDIDKFA im Titelmenü schaltet um; gilt für diesen Browser (localStorage)
+  const CHEAT = 'IDDQDIDKFA';
+  const SCH_COLS = ['#ff6080', '#ffd050', '#60d0ff', '#80ff80', '#ffffff', '#ff9020', '#c080ff'];
+  const pick = (a) => a[Math.floor(Math.random() * a.length)];
+  const easeOutBack = (x) => 1 + 2.70158 * Math.pow(x - 1, 3) + 1.70158 * Math.pow(x - 1, 2);
+  const schImg = typeof Image === 'function' ? Object.assign(new Image(), { src: 'schnitzel.png' }) : null;
+  let cheatBuf = '', schnitzel = false, schFx = null;
+  function setSkin(on) {
+    schnitzel = on;
+    Object.assign(SPR, on ? SKINS.schnitzel : SKINS.tux);
+  }
+  function cheatKey(ch) {
+    if (schFx) return;
+    cheatBuf = (cheatBuf + ch).slice(-CHEAT.length);
+    if (cheatBuf !== CHEAT) return;
+    cheatBuf = '';
+    setSkin(!schnitzel);
+    store.set('tuxo-schnitzel', schnitzel ? '1' : '0');
+    schFx = { on: schnitzel, t: 0, sparks: [], rockets: [], next: 0.25, fanfare: false };
+    if (schnitzel) Sound.tone(200, 1.1, { to: 900, type: 'triangle', vol: 0.12 });
+    else Sound.melody([784, 659, 523, 392, 262], 0.1, { vol: 0.18, type: 'triangle' });
+  }
+  function updateSchnitzelFx(dt) {
+    const f = schFx, dur = f.on ? 6 : 3;
+    f.t += dt;
+    if (f.on) {
+      if (f.t >= f.next && f.t < dur - 1.2) {
+        f.next = f.t + rnd(0.15, 0.4);
+        f.rockets.push({ x: rnd(40, W - 40), y: H + 4, vy: rnd(-230, -170), fuse: rnd(0.6, 1.0), col: pick(SCH_COLS) });
+        Sound.tone(rnd(500, 700), 0.35, { to: rnd(1400, 1800), type: 'triangle', vol: 0.04 });
+      }
+      if (!f.fanfare && f.t > 1.3) { f.fanfare = true; Sound.melody([523, 659, 784, 1047, 0, 784, 1047, 1319], 0.09, { vol: 0.18 }); }
+    }
+    for (let i = f.rockets.length - 1; i >= 0; i--) {
+      const r = f.rockets[i];
+      r.y += r.vy * dt; r.vy += 90 * dt; r.fuse -= dt;
+      f.sparks.push({ x: r.x + rnd(-1, 1), y: r.y + 2, vx: rnd(-8, 8), vy: rnd(10, 30), t: 0, life: 0.3, col: '#ffd890' });
+      if (r.fuse > 0) continue;
+      f.rockets.splice(i, 1);
+      const c2 = pick(SCH_COLS);
+      for (let k = 0; k < 36; k++) {
+        const a = (k / 36) * Math.PI * 2 + rnd(-0.1, 0.1), s = rnd(50, 110);
+        f.sparks.push({ x: r.x, y: r.y, vx: Math.cos(a) * s, vy: Math.sin(a) * s, t: 0, life: rnd(0.8, 1.4), col: k % 3 ? r.col : c2 });
+      }
+      Sound.noise(0.5, { vol: 0.3, freq: 2600, to: 150 });
+    }
+    for (let i = f.sparks.length - 1; i >= 0; i--) {
+      const q = f.sparks[i];
+      q.t += dt;
+      if (q.t >= q.life) { f.sparks.splice(i, 1); continue; }
+      q.x += q.vx * dt; q.y += q.vy * dt; q.vy += 70 * dt; q.vx *= 0.985;
+    }
+    const skip = f.t > 1.5 && (consume('Enter', 'Space', 'Escape') || click);
+    if (f.t > dur || skip) { schFx = null; for (const k in hit) hit[k] = false; }
+  }
+  function drawSchnitzelFx() {
+    const f = schFx, t = f.t;
+    const fade = clamp(Math.min(t * 3, ((f.on ? 6 : 3) - t) * 2), 0, 1);
+    ctx.fillStyle = `rgba(6,3,12,${0.88 * fade})`; ctx.fillRect(0, 0, W, H);
+    for (const q of f.sparks) {
+      ctx.globalAlpha = 1 - q.t / q.life;
+      ctx.fillStyle = q.col; ctx.fillRect(Math.round(q.x), Math.round(q.y), 2, 2);
+    }
+    ctx.globalAlpha = 1;
+    if (schImg && schImg.complete && schImg.naturalWidth) {
+      let x, y, k, a, alpha;
+      if (f.on) {
+        // rotierend von unten links herein, dann leichtes Wackeln
+        const u = Math.min(1, t / 1.2), e = easeOutBack(u);
+        x = -90 + (W / 2 + 90) * e; y = H + 90 - (H + 90 - 104) * e;
+        k = 0.15 + 0.85 * e; a = (1 - u) * Math.PI * 5 + (u >= 1 ? Math.sin((t - 1.2) * 3) * 0.12 : 0);
+        alpha = fade;
+      } else {
+        // dreht sich nach oben rechts davon
+        const u = Math.min(1, t / 1.4), e = u * u;
+        x = W / 2 + e * 300; y = 104 - e * 200; k = 1 - u * 0.8; a = e * Math.PI * 6; alpha = 1 - u;
+      }
+      const S = 150 * k;
+      ctx.save();
+      ctx.globalAlpha = alpha; ctx.imageSmoothingEnabled = true;
+      ctx.translate(x, y); ctx.rotate(a);
+      ctx.drawImage(schImg, -S / 2, -S / 2, S, S);
+      ctx.restore();
+    }
+    const tt = f.on ? t - 1.3 : t - 0.2;
+    if (tt <= 0) return;
+    const pop = tt < 0.35 ? easeOutBack(tt / 0.35) : 1;
+    ctx.save();
+    ctx.globalAlpha = fade;
+    ctx.translate(W / 2, 196); ctx.scale(pop, pop);
+    drawText(f.on ? 'SCHNITZEL-MODUS AKTIVIERT!' : 'SCHNITZEL-MODUS DEAKTIVIERT', 0, -7,
+      f.on && (time * 8 | 0) % 2 ? '#ffe060' : '#ff9020', 3, 'center');
+    ctx.restore();
+    ctx.globalAlpha = fade;
+    if (tt > 0.5) drawText(f.on ? 'AB JETZT SPIELST DU ALS SCHNITZEL' : 'TUX IST ZURÜCK', W / 2, 222, '#c8c0e0', 1, 'center');
+    ctx.globalAlpha = 1;
+  }
+
   // ---------- Titelmenü und Pause ----------
   const MENU = ['SPIELEN', 'LEVEL-EDITOR', 'LEVEL-CODE EINGEBEN'];
   let menuSel = 0;
   const menuRects = () => MENU.map((l, i) => { const w = textWidth(l, 2) + 20; return { x: Math.round(W / 2 - w / 2), y: 128 + i * 19, w, h: 16 }; });
-  function updateTitle() {
+  function updateTitle(dt) {
+    if (schFx) { updateSchnitzelFx(dt); return; }
     if (consume('ArrowUp', 'KeyW')) menuSel = (menuSel + MENU.length - 1) % MENU.length;
     if (consume('ArrowDown', 'KeyS')) menuSel = (menuSel + 1) % MENU.length;
     const rs = menuRects();
@@ -1493,7 +1644,7 @@
     if (state !== 'editor') mouse.wheel = 0;
     if (state !== 'codeinput' && consume('KeyM')) Sound.toggleMute();
     switch (state) {
-      case 'title': updateTitle(); break;
+      case 'title': updateTitle(dt); break;
       case 'editor': updateEditor(dt); break;
       case 'share': updateShare(); break;
       case 'codeinput': updateCodeInput(); break;
@@ -1747,7 +1898,7 @@
       }
     }
     logo(W / 2, 22, 9);
-    drawText('EIN HÖHLENABENTEUER MIT TUX', W / 2, 82, '#f0c040', 1, 'center');
+    drawText(schnitzel ? 'EIN HÖHLENABENTEUER MIT SCHNITZEL' : 'EIN HÖHLENABENTEUER MIT TUX', W / 2, 82, '#f0c040', 1, 'center');
     // Tux fliegt durchs Bild
     const tx = ((time * 50) % (W + 60)) - 30, ty = 98 + Math.sin(time * 2.2) * 5;
     ctx.drawImage(SPR.fly[0], Math.round(tx), Math.round(ty));
@@ -1768,6 +1919,7 @@
     drawText('HIGHSCORE ' + String(hiscore).padStart(6, '0'), W / 2, 228, '#50d050', 1, 'center');
     drawText('RETTE DIE PINGUIN-KÜKEN AUS DEN TIEFEN DES BERGES', W / 2, 244, '#8878a8', 1, 'center');
     drawText(Sound.muted ? 'TON AUS' : 'TON AN', W - 6, H - 10, '#665588', 1, 'right', null);
+    if (schFx && state === 'title') drawSchnitzelFx();
   }
 
   function dim(a) { ctx.fillStyle = `rgba(6,3,12,${a})`; ctx.fillRect(0, HUD, W, H - HUD); }
@@ -1865,6 +2017,7 @@
     if (m) { startGame(); levelIdx = clamp(parseInt(m[1], 10) - 1, 0, LEVELS.length - 1); loadLevel(levelIdx); return; }
     if (/^[2-9A-HJKMNP-Z]{6}$/i.test(h)) loadByCode(h.toUpperCase());
   }
+  setSkin(store.get('tuxo-schnitzel') === '1');
   addEventListener('hashchange', fromHash);
   fromHash();
   requestAnimationFrame(frame);

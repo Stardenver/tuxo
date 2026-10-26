@@ -46,6 +46,25 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
       });
     });
 
+    console.log('Schnitzel-Modus');
+    const typeCode = () => { for (const c of 'IDDQDIDKFA') tap('Key' + c); step(); };
+    typeCode();
+    ok(T.schnitzel && T.schFx && T.schFx.on, 'IDDQDIDKFA im Titel aktiviert den Schnitzel-Modus');
+    ok(T.SPR.stand === T.SKINS.schnitzel.stand && T.SPR.fly === T.SKINS.schnitzel.fly, 'Spielfigur ist das Schnitzel');
+    tap('Enter'); step();
+    ok(T.state === 'title' && T.schFx, 'Enter startet während der Animation kein Spiel');
+    run(7);
+    ok(!T.schFx && T.state === 'title', 'Animation endet von selbst');
+    typeCode(); run(4);
+    ok(!T.schnitzel && T.SPR.stand === T.SKINS.tux.stand, 'erneut IDDQDIDKFA: wieder Tux');
+    typeCode(); run(1.6); tap('Enter'); step();
+    ok(T.schnitzel && !T.schFx && T.state === 'title', 'Animation lässt sich mit Enter überspringen');
+    typeCode(); run(4);
+    ok(!T.schnitzel, 'zurückgeschaltet für die weiteren Tests');
+    T.startGame(); run(0.1); typeCode();
+    ok(!T.schnitzel, 'Code wirkt nur im Titelmenü');
+    T.setState('title'); step();
+
     console.log('Steuerung und Spielmechanik');
     tap('Enter'); step(); run(2.5);
     ok(T.state === 'play', 'Titel -> Spiel');
