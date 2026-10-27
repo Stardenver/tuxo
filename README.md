@@ -13,7 +13,7 @@ kleine API dazu.
 | Pfeil links / rechts oder A / D | laufen |
 | Leertaste (oder Pfeil hoch / W) | Jetpack – je länger gedrückt, desto höher; mit dem richtigen Rhythmus kann man schweben. Das Jetpack verbraucht Treibstoff (Anzeige TANK); ist er leer, kann Tux nur noch springen |
 | Pfeil runter oder S | ducken (am Boden), weicht Lasern und Äxten aus |
-| E | Dynamit ablegen (explodiert nach 2 Sekunden); mehrere Stangen direkt hintereinander sind möglich |
+| E | Dynamit ablegen (explodiert nach 2 Sekunden); mehrere Stangen direkt hintereinander sind möglich. Vorsicht: Herumliegende Dynamit-Pakete gehen bei einer Explosion in der Nähe mit hoch |
 | P / Esc | Pause |
 | M | Ton an/aus |
 

@@ -273,6 +273,30 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
       T.setState('title'); step();
     }
 
+    console.log('Kettenreaktion mit Dynamit-Paketen');
+    {
+      const rows = ['#'.repeat(40)];
+      for (let r = 1; r < 13; r++) rows.push('#' + '.'.repeat(38) + '#');
+      const floor = '#.P.....+.+...................+......C#';
+      rows.push(floor, '#'.repeat(40), '#'.repeat(40));
+      T.startCustom(rows, 'TEST', false); run(2.5);
+      const packs = () => T.pickups.filter((k) => k.kind === 'dyn');
+      const [pA, pB, pC] = packs();
+      // Fledermaus 40 px rechts vom Paket A: zu weit für die Stange, aber im 1,5-fachen Radius des Pakets
+      const bat = { kind: 'bat', x: pA.x + pA.w / 2 + 40, y: pA.y - 2, w: 14, h: 7, hx: 0, by: pA.y - 2, vx: 0, t: 0, pts: 50 };
+      T.enemies.push(bat);
+      T.p.x = 7 * 16 + 3; T.p.inv = 99; step();
+      tap('KeyE'); step();
+      T.p.x = 25 * 16; step();
+      run(2.5, () => !T.dyns.length);
+      ok(packs().length === 2 && !packs().includes(pA) && !bat.dead, 'Explosion trifft Paket A: es verschwindet, Fledermaus lebt noch');
+      run(0.17);
+      ok(bat.dead, 'Paket A explodiert mit 1,5-fachem Radius und erwischt die Fledermaus');
+      run(0.17);
+      ok(packs().length === 1 && packs()[0] === pC, 'Kettenreaktion: Paket B geht mit hoch, das ferne Paket C bleibt liegen');
+      T.p.inv = 0; T.setState('title'); step();
+    }
+
     console.log('Bestenliste');
     await wait(() => T.board.status !== 'loading');
     ok(T.board.status === 'ok' && T.board.list.length === 0, 'Bestenliste beim Start geladen (leer)');

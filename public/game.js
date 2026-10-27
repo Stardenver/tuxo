@@ -6,6 +6,8 @@
   // Jetpack: Anlauf (pro s), Abbau beim Loslassen, Zusatzschub zum Abfangen im Fall, max. Fallgeschwindigkeit
   const SPOOL_UP = 10, SPOOL_DOWN = 4, BRAKE = 1.6, MAX_FALL = 260;
   const FUSE = 2.0, BLAST_R = 26;
+  // Ein getroffenes Dynamit-Paket (3 Stangen) geht kurz danach mit größerem Radius mit hoch
+  const CHAIN_DELAY = 0.15, PACK_BLAST = 1.5;
   const cv = document.getElementById('game');
   const ctx = cv.getContext('2d');
   const LEVELS = window.TUXO_LEVELS;
@@ -586,7 +588,7 @@
   let mode = 'campaign', curLevel = null, curRows = null, curCode = ''; // mode: campaign | test | custom
   let levelIdx = 0, round = 0, score = 0, lives = 3, nextLife = 20000;
   let hiscore = parseInt(store.get('tuxo-hiscore') || '0', 10) || 0;
-  let p, cam, enemies, shots, pickups, hints, dyns, particles, crumbles, chick, shake, flash, popups, respawn, checkpoint, tally;
+  let p, cam, enemies, shots, pickups, hints, dyns, chains, particles, crumbles, chick, shake, flash, popups, respawn, checkpoint, tally;
   // Zeitwertung: Sollzeit 0,8 s pro Spalte, jede Sekunde darunter bringt TIME_PTS Punkte
   let lvlT = 0, lastTimeBonus = 0;
   // Überraschung: jeder Edelstein lädt einen Laserschuss (Taste B), Ladungen gelten pro Level (keine Anzeige, kein Hinweis)
@@ -618,7 +620,7 @@
     let acc = 0;
     for (const s of L.segments) { segStarts.push(acc); acc += s[0].length; }
     enemies = []; shots = []; pickups = []; hints = []; particles = []; crumbles = []; popups = [];
-    dyns = []; chick = null; shake = 0; flash = 0; lvlT = 0;
+    dyns = []; chains = []; chick = null; shake = 0; flash = 0; lvlT = 0;
     laserShots = 0; beam = null;
     const speed = 1 + round * 0.25;
     let start = null;
@@ -817,15 +819,16 @@
         col: Math.random() < 0.5 ? '#ffffa0' : '#ffb020', g: 200, size: 1 });
       if (dyn.t <= 0) { dyns.splice(dyns.indexOf(dyn), 1); explode(dyn.x + 2, dyn.y + 4); }
     }
+    for (const c of [...chains]) if ((c.t -= dt) <= 0) { chains.splice(chains.indexOf(c), 1); explode(c.x, c.y, PACK_BLAST); }
   }
 
-  function explode(cx, cy) {
+  function explode(cx, cy, scale = 1) {
     sfx.boom();
-    shake = 0.45; flash = 0.12;
-    burst(cx, cy, 40, ['#ffffff', '#fff4a0', '#ffd050', '#ff9020', '#e0521a'], { max: 160, g: 60, life: 0.6, size: 2 });
-    burst(cx, cy, 18, ['#555566', '#777788', '#3a3a44'], { max: 50, g: -30, life: 1.2, size: 2 });
+    shake = 0.45 * scale; flash = 0.12;
+    burst(cx, cy, 40 * scale, ['#ffffff', '#fff4a0', '#ffd050', '#ff9020', '#e0521a'], { max: 160 * scale, g: 60, life: 0.6, size: 2 });
+    burst(cx, cy, 18 * scale, ['#555566', '#777788', '#3a3a44'], { max: 50 * scale, g: -30, life: 1.2, size: 2 });
     // Sprengbare Kacheln im Radius; ganze zusammenhängende Wand bröckelt nacheinander weg
-    const r = BLAST_R;
+    const r = BLAST_R * scale;
     for (let ty = Math.floor((cy - r) / TS); ty <= Math.floor((cy + r) / TS); ty++)
       for (let tx = Math.floor((cx - r) / TS); tx <= Math.floor((cx + r) / TS); tx++) {
         const t = tileAt(tx, ty);
@@ -837,6 +840,15 @@
       if (e.dead) continue;
       const nx = clamp(cx, e.x, e.x + e.w), ny = clamp(cy, e.y, e.y + e.h);
       if (Math.hypot(nx - cx, ny - cy) <= r + 10) hitEnemy(e);
+    }
+    // Herumliegende Dynamit-Pakete im Radius gehen kurz darauf mit hoch (Kettenreaktion)
+    for (let i = pickups.length - 1; i >= 0; i--) {
+      const k = pickups[i];
+      if (k.kind !== 'dyn') continue;
+      const nx = clamp(cx, k.x, k.x + k.w), ny = clamp(cy, k.y, k.y + k.h);
+      if (Math.hypot(nx - cx, ny - cy) > r) continue;
+      pickups.splice(i, 1);
+      chains.push({ x: k.x + k.w / 2, y: k.y + k.h / 2, t: CHAIN_DELAY });
     }
     if (state === 'play' && p.inv <= 0) {
       const nx = clamp(cx, p.x, p.x + p.w), ny = clamp(cy, p.y, p.y + p.h);
@@ -2281,7 +2293,7 @@
         if (stateT > 1.8) {
           if (mode !== 'test') lives--;
           if (lives < 0) { finishGame(); break; }
-          shots = []; dyns = [];
+          shots = []; dyns = []; chains = [];
           const keepDyn = Math.max(p.dyn, 3);
           p = Object.assign(newPlayer(respawn.x, respawn.y), { dyn: keepDyn, inv: 2 });
           // Gegner, die direkt am Rücksetzpunkt stehen würden, bleiben trotzdem aktiv – dafür kurze Unverwundbarkeit
