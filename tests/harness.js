@@ -42,6 +42,8 @@ function load(apiBase) {
     SPR, SKINS, get schnitzel() { return schnitzel; }, get schFx() { return schFx; },
     board, qualifies, finishGame, afterGameOver, set score(v) { score = v; }, get nm() { return nm; }, get run() { return run; },
     fromHash, get levelIdx() { return levelIdx; }, isCheater, get witch() { return witch; },
+    explode, AF, get ark() { return ark; }, get relic() { return relic; }, set relic(v) { relic = v; },
+    set forceC64(v) { forceC64 = v; },
     get lvlT() { return lvlT; }, set lvlT(v) { lvlT = v; }, get lastTimeBonus() { return lastTimeBonus; }, parTime,
     startCustom, get enemies() { return enemies; }, get pickups() { return pickups; },
     get laserReady() { return laserReady; }, get laserUsed() { return laserUsed; }, get beam() { return beam; } };

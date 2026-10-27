@@ -591,6 +591,9 @@
   let lvlT = 0, lastTimeBonus = 0;
   // Überraschung: nach einem Edelstein einmal pro Level ein Laser mit Shift (keine Anzeige, kein Hinweis)
   let laserReady = false, laserUsed = false, beam = null;
+  // Easter Egg: selten ersetzt ein C64-Android einen Laufgegner; besiegt bleibt ein C64 liegen (Klick = Arkanoid)
+  const C64_CHANCE = 0.15;
+  let relic = null, forceC64 = false, ark = null;
   const PAR_PER_COL = 0.8, TIME_PTS = 20;
   const parTime = () => Math.round(lvlW * PAR_PER_COL);
   const clock = (sec) => { const t = Math.floor(sec); return Math.floor(t / 60) + ':' + String(t % 60).padStart(2, '0'); };
@@ -642,6 +645,14 @@
       e.maxY = e.ay + n * TS - e.h - 2;
       e.y = e.ay + Math.random() * (e.maxY - e.ay);
     }
+    // C64-Android: übernimmt Platz und Punkte eines Käfers oder Trolls, braucht aber zwei Sprengungen
+    relic = null;
+    const spots = enemies.filter((e) => (e.kind === 'bug' || e.kind === 'troll') && !rectSolid(e.x, e.y + e.h - 15, 14, 15));
+    if (spots.length && mode !== 'test' && (forceC64 || Math.random() < C64_CHANCE)) {
+      const e = pick(spots);
+      Object.assign(e, { kind: 'c64', y: e.y + e.h - 15, w: 14, h: 15, vx: -18 * speed, t: 0, hp: 2, hurt: 0 });
+    }
+    forceC64 = false;
     lavaTiles = [];
     for (let ty = 0; ty < ROWS; ty++) for (let tx = 0; tx < lvlW; tx++) if (grid[ty][tx] === 'L') lavaTiles.push([tx, ty]);
     levelCv = canvas(lvlW * TS, ROWS * TS);
@@ -799,7 +810,7 @@
     for (const e of enemies) {
       if (e.dead) continue;
       const nx = clamp(cx, e.x, e.x + e.w), ny = clamp(cy, e.y, e.y + e.h);
-      if (Math.hypot(nx - cx, ny - cy) <= r + 10) killEnemy(e);
+      if (Math.hypot(nx - cx, ny - cy) <= r + 10) hitEnemy(e);
     }
     if (state === 'play' && p.inv <= 0) {
       const nx = clamp(cx, p.x, p.x + p.w), ny = clamp(cy, p.y, p.y + p.h);
@@ -850,7 +861,7 @@
       if (SOLID[tileAt(tx, ty)]) { x1 = dir > 0 ? Math.max(x0, tx * TS) : Math.min(x0, (tx + 1) * TS); hitWall = true; break; }
     }
     const a = Math.min(x0, x1), b = Math.max(x0, x1);
-    for (const e of enemies) if (!e.dead && e.x < b && e.x + e.w > a && e.y <= y + 1 && e.y + e.h >= y - 1) killEnemy(e);
+    for (const e of enemies) if (!e.dead && e.x < b && e.x + e.w > a && e.y <= y + 1 && e.y + e.h >= y - 1) hitEnemy(e);
     beam = { x0, x1, y, t: 0 };
     if (hitWall) burst(x1, y, 14, ['#ffffff', '#a0f0ff', '#40c8f0'], { max: 90, life: 0.5 });
     shake = Math.max(shake, 0.12);
@@ -859,13 +870,24 @@
   }
 
   // ---------- Gegner ----------
+  function hitEnemy(e) {
+    if (e.kind === 'c64' && --e.hp > 0) {
+      e.hurt = 0.5;
+      Sound.melody([1200, 600, 1200, 300], 0.05, { vol: 0.15 });
+      popups.push({ x: e.x + e.w / 2, y: e.y - 4, text: 'BZZT!', t: 0 });
+      burst(e.x + e.w / 2, e.y + 4, 12, ['#6c5eb5', '#ffffff', '#ffe040'], { max: 90, up: 40 });
+      return;
+    }
+    killEnemy(e);
+  }
   function killEnemy(e) {
     e.dead = true;
     sfx.kill();
     addScore(e.pts, e.x + e.w / 2, e.y);
     const cols = { bat: ['#a060d0', '#5e2c80'], spider: ['#c84444', '#ffe040'], bug: ['#5cb84c', '#2c6a24'],
-      turret: ['#8a9aaa', '#4a5a6a', '#ff7070'], troll: ['#5aa040', '#7a4a24'] }[e.kind];
+      turret: ['#8a9aaa', '#4a5a6a', '#ff7070'], troll: ['#5aa040', '#7a4a24'], c64: ['#c8c0a8', '#6c5eb5', '#a89878'] }[e.kind];
     burst(e.x + e.w / 2, e.y + e.h / 2, 16, cols, { max: 110, up: 50, size: 2 });
+    if (e.kind === 'c64') relic = { x: e.x - 1, y: e.y + e.h - 5, w: 16, h: 5 }; // übrig bleibt der Brotkasten
   }
 
   function lineClear(x0, x1, y) {
@@ -889,7 +911,8 @@
         e.y += e.dir * (e.dir > 0 ? 34 : 24) * e.speed * dt;
         if (e.y >= e.maxY) { e.y = e.maxY; e.dir = -1; e.wait = 0.5; }
         if (e.y <= e.ay) { e.y = e.ay; e.dir = 1; e.wait = 0.9; }
-      } else if (e.kind === 'bug') {
+      } else if (e.kind === 'bug' || e.kind === 'c64') {
+        if (e.hurt > 0) e.hurt -= dt;
         e.t += dt;
         e.x += e.vx * dt;
         const front = e.vx > 0 ? e.x + e.w : e.x - 1;
@@ -2018,6 +2041,151 @@
     });
     if ((time * 2 | 0) % 2) drawText('TASTE ODER KLICK: ZURÜCK', W / 2, 260, '#c8c0e0', 1, 'center');
   }
+  // ---------- C64-Android und Arkanoid (Easter Egg) ----------
+  // Selten ersetzt beim Levelstart ein C64-Android einen Käfer oder Troll (loadLevelData). Zwei Sprengungen
+  // besiegen ihn, übrig bleibt ein C64 (relic). Ein Klick darauf startet eine Runde Arkanoid; das Spiel steht so lange.
+  const C64_PAL = { m: '#c8c0a8', M: '#8a8270', s: '#352879', c: '#a0a0ff', k: '#14141e', b: '#a89878', B: '#6a5a40',
+    d: '#3a3028', r: '#d83020', o: '#f09020', y: '#f0e040', g: '#40b040', l: '#6a6a7a' };
+  const C64_TOP = [
+    '..mmmmmmmmmmmm..',
+    '..mssssssssssm..',
+    '..msccssssccsm..',
+    '..mssssssssssm..',
+    '..mssccccccssm..',
+    '..mmmmmmmmmmmm..',
+    '.....MMMMMM.....',
+    '.bbbbbbbbbbbbbb.',
+    'lbdbdbdbdbdbdbbl',
+    'lbbdbdbdbdbdbdbl',
+    'lbbbbbbbbbroygbl',
+    '.BBBBBBBBBBBBBB.',
+  ];
+  const C64_LEGS = [
+    ['...ll......ll...', '...ll......ll...', '..kkk......kkk..'],
+    ['....ll....ll....', '...ll......ll...', '..kkk.....kkk...'],
+  ];
+  // [unverletzt, wütend (roter Bildschirm)] × [Schritt 1, Schritt 2]
+  const C64_SPR = [C64_PAL, { ...C64_PAL, s: '#883932', c: '#ffe040' }].map((pal) =>
+    C64_LEGS.map((legs) => outlined(sprite([...C64_TOP, ...legs], pal), '#20202c')));
+  const RELIC_SPR = outlined(sprite([
+    '...bbbbbbbbbbb..',
+    '..bdbdbdbdbdbbb.',
+    '.bbdbdbdbdbdbbb.',
+    '.bbbbbbbbbroygb.',
+    '.BBBBBBBBBBBBBB.',
+  ], C64_PAL), '#20202c');
+
+  // Arkanoid im C64-Bildschirm: Rahmen hellblau, Bild dunkelblau wie beim Original
+  const AK = { x: 104, y: 36, w: 272, h: 196, bd: 8 };
+  const AF = { x: AK.x + AK.bd, y: AK.y + AK.bd + 12, w: AK.w - 2 * AK.bd, h: AK.h - 2 * AK.bd - 12 }; // Spielfeld
+  const AK_COLS = ['#b86962', '#bfce72', '#94e089', '#67b6bd'];
+  const AK_BOOT = [[0, '    **** COMMODORE 64 BASIC V2 ****'], [0, ' 64K RAM SYSTEM  38911 BASIC BYTES FREE'], [0, ''],
+    [0, 'READY.'], [0.4, 'LOAD"ARKANOID",8,1', 1], [1.4, ''], [1.4, 'SEARCHING FOR ARKANOID'], [1.8, 'LOADING'],
+    [2.4, 'READY.'], [2.6, 'RUN', 1]];
+  const AK_BOOT_T = 3.0, AK_END_T = 1.6;
+  function relicClicked() {
+    if (!relic || !click) return false;
+    const wx = mouse.x + cam.x, wy = mouse.y - HUD;
+    return wx >= relic.x - 6 && wx < relic.x + relic.w + 6 && wy >= relic.y - 14 && wy < relic.y + relic.h + 4;
+  }
+  function openArk() {
+    relic = null; // nur eine Runde pro C64
+    Sound.setJet(0);
+    Sound.melody([523, 659, 784, 1047, 784, 1047, 1319], 0.06, { vol: 0.12 });
+    const bricks = [];
+    for (let r = 0; r < 4; r++) for (let c = 0; c < 8; c++)
+      bricks.push({ x: AF.x + 8 + c * 30, y: AF.y + 14 + r * 10, w: 28, h: 8, col: AK_COLS[r], alive: true });
+    ark = { phase: 'boot', t: 0, bricks, balls: 2, px: AF.x + AF.w / 2 - 18, pw: 36, speed: 130, ball: null };
+    newBall();
+    setState('arkanoid');
+  }
+  function newBall() { ark.ball = { x: ark.px + ark.pw / 2 - 1.5, y: AF.y + AF.h - 14, vx: 0, vy: 0, stuck: 1.0 }; }
+  function closeArk() { ark = null; setState('play'); }
+  function updateArk(dt) {
+    const a = ark;
+    a.t += dt;
+    if (a.phase === 'boot') {
+      if (a.t > AK_BOOT_T || (a.t > 0.3 && consume('Space', 'Enter'))) { a.phase = 'play'; a.t = 0; }
+      return;
+    }
+    if (a.phase !== 'play') { if (a.t > AK_END_T) closeArk(); return; }
+    // Schläger
+    const dir = (K.right() ? 1 : 0) - (K.left() ? 1 : 0);
+    a.px = clamp(a.px + dir * 170 * dt, AF.x, AF.x + AF.w - a.pw);
+    const py = AF.y + AF.h - 10, b = a.ball;
+    if (b.stuck > 0) {
+      b.x = a.px + a.pw / 2 - 1.5; b.y = py - 4;
+      b.stuck -= dt;
+      if (b.stuck <= 0 || consume('Space', 'ArrowUp')) { b.stuck = 0; b.vx = a.speed * 0.45; b.vy = -a.speed * 0.9; }
+      return;
+    }
+    // Ball: getrennt nach Achsen bewegen, damit Abprallen an Steinen sauber bleibt
+    const hitBrick = () => a.bricks.find((k) => k.alive && b.x < k.x + k.w && b.x + 3 > k.x && b.y < k.y + k.h && b.y + 3 > k.y);
+    const smash = (k) => {
+      k.alive = false;
+      a.speed = Math.min(200, a.speed + 3);
+      Sound.tone(880 + (k.y - AF.y) * 6, 0.06, { vol: 0.12 });
+    };
+    b.x += b.vx * dt;
+    if (b.x < AF.x || b.x + 3 > AF.x + AF.w) { b.x = clamp(b.x, AF.x, AF.x + AF.w - 3); b.vx = -b.vx; Sound.tone(330, 0.04, { vol: 0.08 }); }
+    let k = hitBrick();
+    if (k) { smash(k); b.x -= b.vx * dt; b.vx = -b.vx; }
+    b.y += b.vy * dt;
+    if (b.y < AF.y) { b.y = AF.y; b.vy = -b.vy; Sound.tone(330, 0.04, { vol: 0.08 }); }
+    k = hitBrick();
+    if (k) { smash(k); b.y -= b.vy * dt; b.vy = -b.vy; }
+    // Schläger: Auftreffpunkt bestimmt den Winkel (bis 60° zur Senkrechten)
+    if (b.vy > 0 && b.y + 3 >= py && b.y + 3 <= py + 5 && b.x + 3 > a.px && b.x < a.px + a.pw) {
+      const rel = clamp((b.x + 1.5 - (a.px + a.pw / 2)) / (a.pw / 2), -1, 1), ang = rel * 1.05;
+      b.vx = a.speed * Math.sin(ang); b.vy = -a.speed * Math.cos(ang); b.y = py - 3;
+      Sound.tone(440, 0.05, { vol: 0.12 });
+    }
+    // Geschwindigkeit nachführen (sie steigt mit jedem Stein)
+    const v = Math.hypot(b.vx, b.vy);
+    if (v > 0) { b.vx *= a.speed / v; b.vy *= a.speed / v; }
+    if (!a.bricks.some((s) => s.alive)) {
+      a.phase = 'won'; a.t = 0;
+      Sound.melody([523, 659, 784, 1047, 0, 784, 1047], 0.09, { vol: 0.16 });
+    } else if (b.y > AF.y + AF.h) {
+      a.balls--;
+      Sound.tone(600, 0.5, { to: 80, vol: 0.18 });
+      if (a.balls <= 0) { a.phase = 'lost'; a.t = 0; } else newBall();
+    }
+  }
+  function drawArk() {
+    const a = ark;
+    dim(0.55);
+    ctx.fillStyle = '#6c5eb5'; ctx.fillRect(AK.x, AK.y, AK.w, AK.h);
+    ctx.fillStyle = '#352879'; ctx.fillRect(AK.x + AK.bd, AK.y + AK.bd, AK.w - 2 * AK.bd, AK.h - 2 * AK.bd);
+    const tx = AK.x + AK.bd + 4, ty = AK.y + AK.bd + 4;
+    if (a.phase === 'boot') {
+      let row = 0, last = null;
+      for (const [at, text, typed] of AK_BOOT) {
+        if (a.t < at) break;
+        const s = typed ? text.slice(0, Math.floor((a.t - at) * 25)) : text;
+        drawText(s, tx, ty + row * 8, '#a0a0ff', 1, 'left', null);
+        last = [tx + textWidth(s) + 1, ty + row * 8];
+        row++;
+      }
+      if (last && (time * 3 | 0) % 2) { ctx.fillStyle = '#a0a0ff'; ctx.fillRect(last[0], last[1] - 1, 4, 7); } // Cursor
+      return;
+    }
+    drawText('ARKANOID', tx, ty, '#a0a0ff', 1, 'left', null);
+    drawText('BÄLLE ' + Math.max(0, a.balls), AK.x + AK.w - AK.bd - 4, ty, '#a0a0ff', 1, 'right', null);
+    for (const k of a.bricks) if (k.alive) {
+      ctx.fillStyle = k.col; ctx.fillRect(k.x, k.y, k.w, k.h);
+      ctx.fillStyle = 'rgba(255,255,255,0.35)'; ctx.fillRect(k.x, k.y, k.w, 1);
+      ctx.fillStyle = 'rgba(0,0,0,0.3)'; ctx.fillRect(k.x, k.y + k.h - 1, k.w, 1);
+    }
+    const py = AF.y + AF.h - 10;
+    ctx.fillStyle = '#c8c0a8'; ctx.fillRect(Math.round(a.px), py, a.pw, 4);
+    ctx.fillStyle = '#ff7070'; ctx.fillRect(Math.round(a.px), py, 3, 4); ctx.fillRect(Math.round(a.px) + a.pw - 3, py, 3, 4);
+    if (a.phase === 'play') { ctx.fillStyle = '#ffffff'; ctx.fillRect(Math.round(a.ball.x), Math.round(a.ball.y), 3, 3); }
+    if (a.phase === 'play' && a.ball.stuck > 0) drawText('LINKS/RECHTS: SCHLÄGER', AK.x + AK.w / 2, AF.y + 90, '#a0a0ff', 1, 'center', null);
+    if (a.phase === 'won') drawText('GESCHAFFT!', AK.x + AK.w / 2, AF.y + 80, '#94e089', 3, 'center');
+    if (a.phase === 'lost') drawText('GAME OVER', AK.x + AK.w / 2, AF.y + 80, '#b86962', 3, 'center');
+  }
+
   const pauseButtons = () => rowButtons(['WEITER', mode === 'test' ? 'ZUM EDITOR' : 'AUFGEBEN'], 150);
   function updatePause() {
     const bs = pauseButtons();
@@ -2050,6 +2218,7 @@
       case 'nameentry': updateNameEntry(); break;
       case 'witch': updateWitch(dt); break;
       case 'shame': updateShame(); break;
+      case 'arkanoid': updateArk(dt); break; // das eigentliche Spiel steht still
       case 'scores': updateScores(); break;
       case 'busy': break;
       case 'intro':
@@ -2061,6 +2230,7 @@
         lvlT += dt;
         if (mode === 'test' && consume('Escape')) { enterEditor(); break; }
         if (consume('KeyP', 'Escape')) { paused = true; Sound.setJet(0); return; }
+        if (relicClicked()) { openArk(); break; }
         updatePlayer(dt);
         if (state !== 'play') break;
         if (consume('ShiftLeft', 'ShiftRight')) fireLaser();
@@ -2197,7 +2367,14 @@
       } else if (e.kind === 'troll') {
         const s = SPR.troll[e.dir < 0 ? 0 : 1];
         ctx.drawImage(s, Math.round(e.x - 1), e.y + (e.charge > 0 ? -1 : 0));
+      } else if (e.kind === 'c64') {
+        if (e.hurt > 0 && (time * 20 | 0) % 2) continue; // blinkt nach dem ersten Treffer
+        ctx.drawImage(C64_SPR[e.hp > 1 ? 0 : 1][(e.t * 5 | 0) % 2], Math.round(e.x - 1), Math.round(e.y));
       }
+    }
+    if (relic) {
+      ctx.drawImage(RELIC_SPR, relic.x, relic.y);
+      if ((time * 2 | 0) % 2) drawText('KLICK MICH!', relic.x + 8, relic.y - 10, '#a0a0ff', 1, 'center');
     }
 
     // Schüsse
@@ -2394,6 +2571,7 @@
     }
     drawWorld();
     drawHUD();
+    if (state === 'arkanoid') { drawArk(); return; }
     if (state === 'intro') {
       dim(Math.max(0, 0.7 - Math.max(0, stateT - 1.6)));
       if (mode === 'campaign') {
@@ -2453,6 +2631,10 @@
     let h = '';
     try { h = decodeURIComponent(location.hash.slice(1)); } catch (e) { return; }
     const m = /^level=(\d+)$/.exec(h);
+    if (h === 'c64') { // zum Ausprobieren: Level 3 mit C64-Android, Übungsrunde
+      startGame(); run.practice = true;
+      levelIdx = 2; forceC64 = true; loadLevel(levelIdx); return;
+    }
     if (m) { // Übungsrunde: zählt nicht für die Bestenliste
       startGame(); run.practice = true;
       levelIdx = clamp(parseInt(m[1], 10) - 1, 0, LEVELS.length - 1); loadLevel(levelIdx); return;

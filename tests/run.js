@@ -281,6 +281,67 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     ok(T.state === 'title', 'Mausklick -> Titelmenü');
     T.setState('title'); step();
 
+    console.log('C64-Android und Arkanoid');
+    {
+      const walkers = () => T.enemies.filter((e) => e.kind === 'bug' || e.kind === 'troll');
+      T.startGame();
+      do T.loadLevel(2); while (T.enemies.some((e) => e.kind === 'c64')); // Vergleichsstand ohne Zufalls-Android
+      const before = walkers(), sumPts = (l) => l.reduce((s, e) => s + e.pts, 0), all0 = sumPts(T.enemies);
+      T.forceC64 = true; T.loadLevel(2);
+      let droid = T.enemies.find((e) => e.kind === 'c64');
+      ok(droid && droid.hp === 2 && walkers().length === before.length - 1, 'Android ersetzt einen Käfer oder Troll');
+      ok(sumPts(T.enemies) === all0, 'Punkte im Level bleiben gleich (Grenze der Bestenliste)');
+      let n = 0;
+      for (let i = 0; i < 400; i++) { T.loadLevel(2); if (T.enemies.some((e) => e.kind === 'c64')) n++; }
+      ok(n > 30 && n < 100, `selten: ${n} von 400 Levelstarts (erwartet ca. 60)`);
+      n = 0;
+      for (let i = 0; i < 100; i++) { T.loadLevel(0); if (T.enemies.some((e) => e.kind === 'c64')) n++; }
+      ok(n === 0, 'Level ohne Laufgegner bekommen keinen Android');
+      T.forceC64 = true; T.loadLevel(2); T.setState('play');
+      droid = T.enemies.find((e) => e.kind === 'c64');
+      T.p.inv = 999; T.p.x = droid.x - 100;
+      const s0 = T.score;
+      T.explode(droid.x + 7, droid.y + 8);
+      ok(!droid.dead && droid.hp === 1 && !T.relic, 'erste Sprengung: nur angeschlagen');
+      T.explode(droid.x + 7, droid.y + 8);
+      ok(droid.dead && T.relic && T.score - s0 >= droid.pts, `zweite Sprengung: besiegt, C64 bleibt liegen, ${droid.pts} Punkte`);
+      // Klick auf den C64
+      T.cam.x = Math.max(0, T.relic.x - 200); step();
+      clickAt(T.relic.x - T.cam.x + 8, T.relic.y + 14 + 2); release();
+      ok(T.state === 'arkanoid' && T.ark && !T.relic, 'Klick auf den C64 startet Arkanoid');
+      const lvlT0 = T.lvlT, ex = T.enemies.filter((e) => !e.dead).map((e) => e.x + ',' + e.y).join();
+      key('ArrowRight', true); run(2); key('ArrowRight', false);
+      ok(T.lvlT === lvlT0 && T.enemies.filter((e) => !e.dead).map((e) => e.x + ',' + e.y).join() === ex, 'Spiel steht still: keine Zeit, keine Monster');
+      run(1.2);
+      ok(T.ark.phase === 'play', 'nach dem C64-Startbildschirm läuft das Spiel');
+      // echte Ballphysik: der Schläger folgt dem Ball
+      let out = false;
+      for (let i = 0; i < 60 * 90 && T.ark && T.ark.phase === 'play'; i++) {
+        const a = T.ark, bx = a.ball.x + 1.5, mid = a.px + a.pw / 2;
+        T.keys.ArrowLeft = bx < mid - 6; T.keys.ArrowRight = bx > mid + 6;
+        step();
+        if (T.ark && (T.ark.ball.x < T.AF.x - 1 || T.ark.ball.x > T.AF.x + T.AF.w || T.ark.ball.y < T.AF.y - 1)) out = true;
+      }
+      T.keys.ArrowLeft = T.keys.ArrowRight = false;
+      ok(!out, 'Ball bleibt im Spielfeld');
+      ok(T.ark && T.ark.phase === 'won', `mit gutem Schläger alle Steine weg (${T.ark ? T.ark.bricks.filter((k) => k.alive).length + ' übrig, ' + T.ark.phase : 'geschlossen'})`);
+      run(1.7);
+      ok(T.state === 'play' && !T.ark && !T.relic, 'danach zurück im Level, der C64 ist verbraucht');
+      // verlieren: zweimal den Ball verlieren
+      T.relic = { x: T.p.x + 60, y: 100, w: 16, h: 5 };
+      clickAt(T.relic.x - T.cam.x + 8, T.relic.y + 14 + 2); release();
+      run(0.4); tap('Space'); step();
+      ok(T.ark.phase === 'play', 'Leertaste überspringt den C64-Startbildschirm');
+      const drop = () => { T.ark.ball.stuck = 0; T.ark.ball.vx = 0; T.ark.ball.vy = 200; T.ark.ball.y = T.AF.y + T.AF.h - 2; step(); };
+      drop();
+      ok(T.ark.phase === 'play' && T.ark.balls === 1, 'erster Ball verloren: weiter mit dem zweiten');
+      drop();
+      ok(T.ark.phase === 'lost', 'zweiter Ball verloren: Ende');
+      run(1.7);
+      ok(T.state === 'play' && !T.ark, 'Arkanoid schließt sich');
+      T.setState('title'); step();
+    }
+
     console.log('Hall of Shame');
     T.setState('title'); step();
     clickAt(480 - 30, 7); release();
