@@ -4,7 +4,7 @@ const { spawn, spawnSync } = require('child_process');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { load, key } = require('./harness');
+const { load, key, PUBLIC } = require('./harness');
 
 let failed = 0;
 const ok = (c, m) => { if (!c) failed++; console.log((c ? '  ok    ' : '  FEHL  ') + m); };
@@ -274,6 +274,16 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     step(); tap('Enter'); step(); run(T.witch.end + 0.1); clickAt(240, 135); release();
     ok(T.state === 'title', 'Mausklick -> Titelmenü');
     T.setState('title'); step();
+
+    console.log('Hall of Shame');
+    T.setState('title'); step();
+    clickAt(480 - 30, 7); release();
+    ok(T.state === 'shame', 'Klick oben rechts im Titel öffnet die Hall of Shame');
+    ok(['shame-kim88.jpg', 'shame-actionschnitzel.jpg'].every((f) => fs.existsSync(path.join(PUBLIC, f))), 'beide Bilder liegen in public/');
+    run(0.6); tap('KeyX'); step();
+    ok(T.state === 'title', 'beliebige Taste -> zurück ins Titelmenü');
+    clickAt(480 - 30, 7); release(); run(0.6); clickAt(240, 135); release();
+    ok(T.state === 'title', 'Mausklick -> zurück ins Titelmenü');
 
     console.log('Editor, Teilen, Laden');
     T.setState('title'); step();

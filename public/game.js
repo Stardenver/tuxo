@@ -665,6 +665,7 @@
     state = s; stateT = 0; paused = false;
     for (const k in hit) hit[k] = false;
     document.body.classList.toggle('editing', s === 'editor' || s === 'share');
+    document.body.classList.toggle('shame', s === 'shame');
   }
 
   function addScore(n, x, y) {
@@ -1964,6 +1965,7 @@
     if (consume('ArrowDown', 'KeyS')) menuSel = (menuSel + 1) % MENU.length;
     const rs = menuRects();
     if (mouse.moved) { rs.forEach((r, i) => { if (inRect(mouse, r)) menuSel = i; }); mouse.moved = false; }
+    if (click && inRect(mouse, SHAME_BTN)) { openShame(); return; }
     let go = consume('Enter', 'Space');
     if (click) { const i = rs.findIndex((r) => inRect(mouse, r)); if (i >= 0) { menuSel = i; go = true; } }
     if (!go) return;
@@ -1971,6 +1973,42 @@
     else if (menuSel === 1) enterEditor();
     else if (menuSel === 2) openCodeInput();
     else showScores(false, true);
+  }
+
+  // ---------- Hall of Shame (Easter Egg) ----------
+  // Klein oben rechts im Titel. Die Fotos liegen als <img> (#shame) über dem Canvas, damit sie scharf bleiben;
+  // das Canvas zeichnet Rahmen und Namen. Geladen wird erst beim ersten Öffnen.
+  const SHAME_BTN = { x: W - 61, y: 2, w: 59, h: 11 };
+  const SHAME = [['KIM88', 'shame-kim88.jpg'], ['ACTIONSCHNITZEL', 'shame-actionschnitzel.jpg']];
+  const SHAME_S = 190, SHAME_GAP = 20, SHAME_Y = 44;
+  const shameRect = (i) => ({ x: W / 2 - SHAME_S - SHAME_GAP / 2 + i * (SHAME_S + SHAME_GAP), y: SHAME_Y, w: SHAME_S, h: SHAME_S });
+  const shameEl = document.getElementById('shame');
+  function openShame() {
+    if (shameEl) shameEl.querySelectorAll('img').forEach((img, i) => {
+      const r = shameRect(i), pct = (v, of) => (v / of) * 100 + '%';
+      Object.assign(img.style, { left: pct(r.x, W), top: pct(r.y, H), width: pct(r.w, W), height: pct(r.h, H) });
+      if (!img.getAttribute('src')) img.src = SHAME[i][1];
+    });
+    Sound.melody([392, 370, 349, 330], 0.3, { type: 'triangle', vol: 0.2 }); // „wah wah wah wahhh“
+    setState('shame');
+  }
+  function updateShame() {
+    let any = false;
+    for (const k in hit) { if (hit[k]) any = true; hit[k] = false; }
+    if (stateT > 0.5 && (any || click)) setState('title');
+  }
+  function drawShame() {
+    drawBackdrop();
+    ctx.fillStyle = 'rgba(6,3,12,0.6)'; ctx.fillRect(0, 0, W, H);
+    logo(W / 2, 8, 5, 'HALL OF SHAME');
+    SHAME.forEach(([name], i) => {
+      const r = shameRect(i);
+      ctx.fillStyle = '#f0c040'; ctx.fillRect(r.x - 3, r.y - 3, r.w + 6, r.h + 6);
+      ctx.fillStyle = '#1a1024'; ctx.fillRect(r.x - 1, r.y - 1, r.w + 2, r.h + 2);
+      drawText('LADE ...', r.x + r.w / 2, r.y + r.h / 2 - 3, '#665588', 1, 'center'); // verdeckt, sobald das Foto da ist
+      drawText(name, r.x + r.w / 2, r.y + r.h + 6, '#ff5050', 2, 'center');
+    });
+    if ((time * 2 | 0) % 2) drawText('TASTE ODER KLICK: ZURÜCK', W / 2, 260, '#c8c0e0', 1, 'center');
   }
   const pauseButtons = () => rowButtons(['WEITER', mode === 'test' ? 'ZUM EDITOR' : 'AUFGEBEN'], 150);
   function updatePause() {
@@ -2003,6 +2041,7 @@
       case 'customdone': updateCustomDone(); break;
       case 'nameentry': updateNameEntry(); break;
       case 'witch': updateWitch(dt); break;
+      case 'shame': updateShame(); break;
       case 'scores': updateScores(); break;
       case 'busy': break;
       case 'intro':
@@ -2305,6 +2344,7 @@
     drawText((best ? 'REKORD ' + pad6(best.score) + ' ' + best.name + '    ' : '') + 'DEIN BESTES ' + pad6(hiscore), W / 2, 232, '#50d050', 1, 'center');
     drawText('RETTE DIE PINGUIN-KÜKEN AUS DEN TIEFEN DES BERGES', W / 2, 246, '#8878a8', 1, 'center');
     drawText(Sound.muted ? 'TON AUS' : 'TON AN', W - 6, H - 10, '#665588', 1, 'right', null);
+    drawText('HALL OF SHAME', W - 6, SHAME_BTN.y + 3, inRect(mouse, SHAME_BTN) ? '#ff7070' : '#a04848', 1, 'right');
     if (schFx && state === 'title') drawSchnitzelFx();
   }
 
@@ -2326,6 +2366,7 @@
     if (state === 'busy') { drawBusy(); return; }
     if (state === 'nameentry') { drawNameEntry(); return; }
     if (state === 'witch') { drawWitch(); return; }
+    if (state === 'shame') { drawShame(); return; }
     if (state === 'scores') { drawScores(); return; }
     if (state === 'gameover' && stateT > 0.6) {
       drawTitle();
