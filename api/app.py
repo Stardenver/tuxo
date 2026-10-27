@@ -58,7 +58,13 @@ RUN_MAX_AGE, MAX_RUNS = 12 * 3600, 50_000
 RUN_RE = re.compile(r'[A-Za-z0-9_-]{22}')
 LIMIT_RUN_IP = ((3600, 60), (86400, 300))
 LIMIT_RUN_ALL = ((86400, 20_000),)
-LIMIT_SCORE_IP = ((3600, 10), (86400, 30))
+LIMIT_SCORE_IP = ((3600, int(os.environ.get('TUXO_SCORES_PER_HOUR', '10'))), (86400, 30))
+# Hexe (Easter Egg): Namen bekannter Cheater stehen NICHT im Code (öffentliches Repo), sondern in dieser Datei
+# im Datenordner, je Zeile einer. Trifft ein Name, halbiert der Server die Punkte und meldet dem Spiel "witch".
+WITCH_FILE = os.environ.get('TUXO_WITCH_FILE', '/data/hexe.txt')
+# Vereinfachte Schreibweise, damit T1MO, T.I.M.O, TIIMO usw. nicht durchrutschen
+LEET = str.maketrans({'0': 'O', '1': 'I', 'L': 'I', '2': 'Z', '3': 'E', '4': 'A', '5': 'S', '6': 'G', '7': 'T',
+                      '8': 'B', '9': 'G', 'Ä': 'A', 'Ö': 'O', 'Ü': 'U'})
 LIMIT_SCORE_ALL = ((86400, 2000),)
 
 
@@ -366,7 +372,32 @@ def top_scores(con):
     return [{'name': n, 'score': s, 'levels': l} for n, s, l in rows]
 
 
-def store_score(name, score, levels):
+def simplify(s):
+    return re.sub(r'[^A-Z0-9ÄÖÜ]', '', s.upper()).translate(LEET)
+
+
+_witch = {'mtime': None, 'res': []}
+
+
+def witch_patterns():
+    """Muster aus WITCH_FILE; Buchstaben dürfen sich wiederholen (ANNA passt auch auf AANNNA). Ohne Datei keine Hexe."""
+    try:
+        mtime = os.stat(WITCH_FILE).st_mtime_ns
+    except OSError:
+        return []
+    if mtime != _witch['mtime']:
+        with open(WITCH_FILE, encoding='utf-8') as f:
+            names = [simplify(n) for n in f.read().split('\n') if n.strip() and not n.startswith('#')]
+        _witch.update(mtime=mtime, res=[re.compile(''.join(re.escape(c) + '+' for c in n)) for n in names if n])
+    return _witch['res']
+
+
+def is_cheater(name):
+    n = simplify(name)
+    return any(r.search(n) for r in witch_patterns())
+
+
+def store_score(name, score, levels, only_top=False):
     """Trägt ein und gibt (Platz oder None, Top 10) zurück. Gleichstand: der frühere Eintrag steht oben."""
     con = db()
     try:
@@ -378,6 +409,9 @@ def store_score(name, score, levels):
                 (SELECT id FROM scores ORDER BY score DESC, id ASC LIMIT ?)''', (KEEP_SCORES,))
         rank = con.execute('SELECT COUNT(*) FROM scores WHERE score > ? OR (score = ? AND id < ?)',
                            (score, score, new_id)).fetchone()[0] + 1
+        if only_top and rank > TOP_N:  # Hexe: halbiert reicht es nicht für die Liste – dann gar kein Eintrag
+            with con:
+                con.execute('DELETE FROM scores WHERE id = ?', (new_id,))
         return (rank if rank <= TOP_N else None), top_scores(con)
     finally:
         con.close()
@@ -490,7 +524,12 @@ class Handler(BaseHTTPRequestHandler):
         res = validate_score(payload)
         if isinstance(res, str):
             return self.send_json(400, {'error': res})
-        rank, scores = store_score(*res)
+        name, score, levels = res
+        if is_cheater(name):  # die Hexe halbiert (abgerundet), das Spiel zeigt die Animation
+            half = score // 2
+            rank, scores = store_score(name, half, levels, only_top=True) if half > 0 else (None, load_scores())
+            return self.send_json(201, {'rank': rank, 'scores': scores, 'witch': True, 'from': score, 'to': half})
+        rank, scores = store_score(name, score, levels)
         self.send_json(201, {'rank': rank, 'scores': scores})
 
 

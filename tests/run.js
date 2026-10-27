@@ -15,13 +15,21 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'tuxo-test-'));
   const port = 18000 + Math.floor(Math.random() * 1000);
   const dbFile = path.join(tmp, 'levels.sqlite'), levelsFile = path.join(__dirname, '..', 'public', 'levels.js');
+  // Hexe: erfundene Testnamen (die echte Liste liegt nur auf dem Server in api/data/hexe.txt)
+  const witchFile = path.join(tmp, 'hexe.txt');
+  fs.writeFileSync(witchFile, '# Testliste\nHEXTEST\nZAUBER99\nKROKO\n');
+  // Cheat-Code und echte Hexen-Namen stehen nicht im öffentlichen Repo, sondern lokal in tests/geheim.json
+  // ({"cheat": "...", "geheim": [nicht öffentliche Namen der Hexen-Liste]}); fehlt die Datei, werden diese Prüfungen übersprungen.
+  let secret = null;
+  try { secret = JSON.parse(fs.readFileSync(path.join(__dirname, 'geheim.json'), 'utf8')); } catch (e) { /* fehlt */ }
   const appPy = path.join(__dirname, '..', 'api', 'app.py');
   const sql = (q) => spawnSync('python3', ['-c', 'import sqlite3,sys; c=sqlite3.connect(sys.argv[1]); c.execute(sys.argv[2]); c.commit()', dbFile, q]);
   const postScore = (body) => fetch('/api/scores', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
     .then(async (r) => ({ status: r.status, ...(await r.json()) }));
   const newRun = () => fetch('/api/runs', { method: 'POST' }).then((r) => r.json()).then((j) => j.run);
   const api = spawn('python3', [path.join(__dirname, '..', 'api', 'app.py'), 'serve'],
-    { env: { ...process.env, TUXO_DB: dbFile, TUXO_PORT: String(port), TUXO_LEVELS: levelsFile }, stdio: 'ignore' });
+    { env: { ...process.env, TUXO_DB: dbFile, TUXO_PORT: String(port), TUXO_LEVELS: levelsFile, TUXO_WITCH_FILE: witchFile,
+      TUXO_SCORES_PER_HOUR: '100' }, stdio: 'ignore' });
   await sleep(800);
   const T = load(`http://127.0.0.1:${port}`);
   const step = (n = 1) => { for (let i = 0; i < n; i++) { T.update(1 / 60); if (i % 4 === 0) T.draw(); } };
@@ -78,17 +86,29 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
       ok(back2.name === "DAS 'LOCH'" && back2.ki === 'GEMINI 2.5 PRO' && back2.segments.length === base.segments.length, 'Ausgabe für levels.js ist gültiges JavaScript');
     }
 
+    console.log('Geheimnisse stehen nicht im öffentlichen Quelltext');
+    if (!secret) console.log('  (tests/geheim.json fehlt – Prüfungen mit Cheat-Code und echten Namen übersprungen)');
+    else {
+      const pub = ['public/game.js', 'public/levels.js', 'public/index.html', 'api/app.py', 'tests/run.js', 'tests/harness.js', 'README.md', 'tools/level-check.js']
+        .map((f) => fs.readFileSync(path.join(__dirname, '..', f), 'utf8').toUpperCase()).join('\n');
+      const leaks = [secret.cheat, ...(secret.geheim || [])].filter((w) => pub.includes(w.toUpperCase()));
+      ok(!leaks.length, `Cheat-Code und Hexen-Namen nirgends im Klartext${leaks.length ? ' – gefunden: ' + leaks.join(', ') : ''}`);
+    }
+
     console.log('Schnitzel-Modus');
-    const typeCode = () => { for (const c of 'IDDQDIDKFA') tap('Key' + c); step(); };
+    if (secret) {
+    const typeCode = () => { for (const c of secret.cheat) tap('Key' + c); step(); };
+    tap('KeyX'); tap('KeyY'); step();
+    ok(!T.schnitzel && !T.schFx, 'andere Buchstaben schalten nichts um');
     typeCode();
-    ok(T.schnitzel && T.schFx && T.schFx.on, 'IDDQDIDKFA im Titel aktiviert den Schnitzel-Modus');
+    ok(T.schnitzel && T.schFx && T.schFx.on, 'geheimer Code im Titel aktiviert den Schnitzel-Modus');
     ok(T.SPR.stand === T.SKINS.schnitzel.stand && T.SPR.fly === T.SKINS.schnitzel.fly, 'Spielfigur ist das Schnitzel');
     tap('Enter'); step();
     ok(T.state === 'title' && T.schFx, 'Enter startet während der Animation kein Spiel');
     run(7);
     ok(!T.schFx && T.state === 'title', 'Animation endet von selbst');
     typeCode(); run(4);
-    ok(!T.schnitzel && T.SPR.stand === T.SKINS.tux.stand, 'erneut IDDQDIDKFA: wieder Tux');
+    ok(!T.schnitzel && T.SPR.stand === T.SKINS.tux.stand, 'Code erneut eingegeben: wieder Tux');
     typeCode(); run(1.6); tap('Enter'); step();
     ok(T.schnitzel && !T.schFx && T.state === 'title', 'Animation lässt sich mit Enter überspringen');
     typeCode(); run(4);
@@ -96,6 +116,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     T.startGame(); run(0.1); typeCode();
     ok(!T.schnitzel, 'Code wirkt nur im Titelmenü');
     T.setState('title'); step();
+    }
 
     console.log('Steuerung und Spielmechanik');
     tap('Enter'); step(); run(2.5);
@@ -305,21 +326,30 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     location.hash = ''; T.setState('title'); step();
 
     console.log('Die Hexe');
-    const names = ['KIM88', 'SAMUEL', 'TIMO!!!!!!', 'XTIMOX', 'ACTIONSCHN', 'ACTION SCH', 'T1MO', 'T.I.M.O', 'TIIMO', 'T-1-M-0',
-      'K1M 88', 'KIM88!', 'KIMBB', 'SAMU3L', '5AMUE1', 'SCHNITZEL', 'SCHN1TZ3L', 'SCHNITZ.EL', '4CT1ON5CH', 'KIM888', 'SSAMUEL'];
-    const missed = names.filter((n) => !T.isCheater(n));
+    // Namensprüfung läuft auf dem Server (Testliste: HEXTEST, ZAUBER99, KROKO)
+    const cheaterCheck = (list) => JSON.parse(String(spawnSync('python3', ['-c',
+      'import sys, json; sys.path.insert(0, sys.argv[1]); import app; print(json.dumps([app.is_cheater(n) for n in json.loads(sys.argv[2])]))',
+      path.join(__dirname, '..', 'api'), JSON.stringify(list)], { env: { ...process.env, TUXO_DB: dbFile, TUXO_WITCH_FILE: witchFile } }).stdout));
+    const names = ['HEXTEST', 'HEXTEST!!!', 'XHEXTESTX', 'H3XT3ST', 'H.E.X.T.E.S.T', 'HHEXTEST', 'HEX TEST', 'ZAUBER99', 'ZAUB3R 99',
+      'ZAUBERGG', 'ZAUBER999', 'KROKO', 'KR0K0', 'KRROOKO'];
+    const hit = cheaterCheck(names), missed = names.filter((n, i) => !hit[i]);
     ok(!missed.length, `alle ${names.length} Schreibweisen erkannt${missed.length ? ' – nicht: ' + missed.join(', ') : ''}`);
-    const wrong = ['ACTIONFETA', 'TESTER', 'TIM', 'KIM8', 'H4NOVER', 'WOLLE!', 'GERBIL', 'ATODATZEL', 'GOTTKAISER', 'DENVSTARER', 'KIMBERLY', 'TIMBO', 'SAMU'].filter(T.isCheater);
+    const others = ['TESTER', 'HEXTES', 'ZAUBER9', 'KROK', 'KROKUS', 'H4NOVER', 'WOLLE!'], wrongHit = cheaterCheck(others);
+    const wrong = others.filter((n, i) => wrongHit[i]);
     ok(!wrong.length, `andere Namen bleiben unbehelligt${wrong.length ? ' – fälschlich: ' + wrong.join(', ') : ''}`);
+    ok(!/CHEATERS|isCheater/.test(fs.readFileSync(path.join(__dirname, '..', 'public', 'game.js'), 'utf8')), 'keine Namensliste mehr im Spiel');
+    const fillBoard = () => sql("INSERT INTO scores (name, score, levels, created) VALUES " + Array(10).fill("('VOLL', 5000, 3, 0)").join(', '));
+    const emptyBoard = () => sql("DELETE FROM scores WHERE name = 'VOLL'");
     const toNameEntry = async (pts) => {
       T.startGame(); run(0.1); await wait(() => T.run.token);
       T.score = pts; T.finishGame(); await wait(() => T.board.status !== 'loading');
       run(1.6); tap('Enter'); step();
     };
-    await toNameEntry(1001);
-    for (const c of 'SAMUEL') tap('Key' + c);
+    await toNameEntry(501);
+    for (const c of 'HEXTEST') tap('Key' + c);
     step(); tap('Enter'); step();
-    ok(T.state === 'witch' && T.witch.from === 1001 && T.witch.to === 500 && T.witch.ok, 'Cheater-Name ruft die Hexe (1001 -> 500)');
+    await wait(() => T.state !== 'busy');
+    ok(T.state === 'witch' && T.witch.from === 501 && T.witch.to === 250 && T.witch.ok, 'Server erkennt den Namen, Hexe erscheint (501 -> 250)');
     run(3); tap('Enter'); tap('Escape'); clickAt(240, 135); release();
     ok(T.state === 'witch' && !T.witch.go, 'Tasten und Klicks während des Spruchs bleiben wirkungslos');
     run(T.witch.hold + 20);
@@ -329,24 +359,27 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     run(T.witch.end, () => T.state !== 'witch');
     await wait(() => T.state !== 'busy');
     const mine = T.board.list[T.board.mine];
-    ok(T.state === 'scores' && mine && mine.name === 'SAMUEL' && mine.score === 500, `halbierte Punkte eingetragen (${JSON.stringify(mine)})`);
+    ok(T.state === 'scores' && mine && mine.name === 'HEXTEST' && mine.score === 250, `halbierte Punkte eingetragen (${JSON.stringify(mine)})`);
     T.setState('title'); step();
-    await toNameEntry(1001);
-    T.board.list = Array.from({ length: 10 }, () => ({ name: 'ECHT', score: 5000, levels: 3 }));
-    for (const c of 'TIMO') tap('Key' + c);
+    await toNameEntry(501); fillBoard();
+    for (const c of 'KROKO') tap('Key' + c);
     step(); tap('Enter'); step();
+    await wait(() => T.state !== 'busy');
     ok(T.state === 'witch' && !T.witch.ok, 'halbiert reicht es nicht mehr für die Liste');
+    const stored = await fetch('/api/scores').then((r) => r.json());
+    ok(!stored.scores.some((e) => e.name === 'KROKO'), 'zu wenig: auf dem Server nichts eingetragen');
     run(T.witch.hold + 0.1); clickAt(240, 135); release();
     ok(T.witch.go, 'Mausklick setzt die wartende Hexe fort');
     run(T.witch.end + 1);
     ok(T.state === 'witch', 'Upsi bleibt stehen, bis jemand etwas drückt');
     tap('KeyX'); step();
-    ok(T.state === 'title' && !T.witch, 'beliebige Taste -> Titelmenü, nichts eingetragen');
-    await toNameEntry(1001);
-    T.board.list = Array.from({ length: 10 }, () => ({ name: 'ECHT', score: 5000, levels: 3 }));
-    for (const c of 'TIMO') tap('Key' + c);
-    step(); tap('Enter'); step(); run(T.witch.hold + 0.1); tap('Space'); step(); run(T.witch.end + 0.1); clickAt(240, 135); release();
+    ok(T.state === 'title' && !T.witch, 'beliebige Taste -> Titelmenü');
+    emptyBoard();
+    await toNameEntry(501); fillBoard();
+    for (const c of 'KROKO') tap('Key' + c);
+    step(); tap('Enter'); step(); await wait(() => T.state !== 'busy'); run(T.witch.hold + 0.1); tap('Space'); step(); run(T.witch.end + 0.1); clickAt(240, 135); release();
     ok(T.state === 'title', 'Mausklick -> Titelmenü');
+    emptyBoard();
     T.setState('title'); step();
 
     console.log('C64-Android und Arkanoid');

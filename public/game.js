@@ -1649,20 +1649,20 @@
     const name = nm.s.split(' ').filter(Boolean).join(' ');
     if (!name) { nm.err = 'BITTE GIB EINEN NAMEN EIN'; return; }
     store.set('tuxo-name', name);
-    if (isCheater(name)) { startWitch(name); return; }
     postScore(name, score);
   }
   function postScore(name, pts) {
     busyText = 'TRAGE DICH EIN ...';
     setState('busy');
     request(SCORES_API, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, score: pts, levels: levelIdx, run: run.token }) })
-      .then((j) => {
-        board.list = Array.isArray(j.scores) ? j.scores : []; board.status = 'ok';
-        board.attract = false; board.fromGame = true; board.mine = j.rank ? j.rank - 1 : -1;
-        setState('scores');
-        sfx.clear();
-      })
+      .then((j) => { if (j.witch) startWitch(name, j); else showEntry(j); })
       .catch((e) => { nm.err = errText(e); setState('nameentry'); });
+  }
+  function showEntry(j) {
+    board.list = Array.isArray(j.scores) ? j.scores : []; board.status = 'ok';
+    board.attract = false; board.fromGame = true; board.mine = j.rank ? j.rank - 1 : -1;
+    setState('scores');
+    sfx.clear();
   }
   function drawNameEntry() {
     drawBackdrop();
@@ -1711,12 +1711,20 @@
   }
 
   // ---------- Schnitzel-Modus (Easter Egg) ----------
-  // IDDQDIDKFA im Titelmenü schaltet um; gilt für diesen Browser (localStorage)
-  const CHEAT = 'IDDQDIDKFA';
+  // Ein geheimer Code im Titelmenü schaltet um; gilt für diesen Browser (localStorage)
+  // Der Code steht bewusst nicht im Quelltext, nur sein Fingerabdruck (cyrb53); geprüft werden alle Enden der Eingabe
+  const CHEAT_HASH = 818662739232329, CHEAT_MAX = 16;
+  function hash53(s, seed = 79) {
+    let h1 = 0xdeadbeef ^ seed, h2 = 0x41c6ce57 ^ seed;
+    for (let i = 0; i < s.length; i++) { const ch = s.charCodeAt(i); h1 = Math.imul(h1 ^ ch, 2654435761); h2 = Math.imul(h2 ^ ch, 1597334677); }
+    h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+    h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+    return 4294967296 * (2097151 & h2) + (h1 >>> 0);
+  }
   const SCH_COLS = ['#ff6080', '#ffd050', '#60d0ff', '#80ff80', '#ffffff', '#ff9020', '#c080ff'];
   const pick = (a) => a[Math.floor(Math.random() * a.length)];
   const easeOutBack = (x) => 1 + 2.70158 * Math.pow(x - 1, 3) + 1.70158 * Math.pow(x - 1, 2);
-  // Bild nur für die Animation; geladen wird es, sobald jemand den Code zu tippen beginnt
+  // Bild nur für die Animation; geladen wird es beim ersten im Titel getippten Buchstaben (verrät nichts über den Code)
   let schImg = null;
   function loadSchImg() { if (!schImg && typeof Image === 'function') schImg = Object.assign(new Image(), { src: 'schnitzel.png' }); }
   let cheatBuf = '', schnitzel = false, schFx = null;
@@ -1726,10 +1734,11 @@
   }
   function cheatKey(ch) {
     if (schFx) return;
-    cheatBuf = (cheatBuf + ch).slice(-CHEAT.length);
-    for (let k = 3; k <= cheatBuf.length; k++) if (CHEAT.startsWith(cheatBuf.slice(-k))) loadSchImg();
-    if (cheatBuf !== CHEAT) return;
     loadSchImg();
+    cheatBuf = (cheatBuf + ch).slice(-CHEAT_MAX);
+    let hit = false;
+    for (let k = 1; k <= cheatBuf.length && !hit; k++) hit = hash53(cheatBuf.slice(-k)) === CHEAT_HASH;
+    if (!hit) return;
     cheatBuf = '';
     setSkin(!schnitzel);
     store.set('tuxo-schnitzel', schnitzel ? '1' : '0');
@@ -1814,14 +1823,8 @@
   }
 
   // ---------- Die Hexe (Easter Egg) ----------
-  // Bekannte Cheater der Bestenliste: Eine Hexe halbiert die Punkte, bevor sie eingetragen werden.
-  // Der Name muss eines der Wörter enthalten; ACTIONSCHNITZEL passt nicht in 10 Zeichen, daher reicht der Anfang.
-  // Verglichen wird in einer vereinfachten Form, damit T1MO, T.I.M.O, TIIMO, K1M 88 oder SCHN1TZ3L nicht durchrutschen.
-  const CHEATERS = ['KIM88', 'SAMUEL', 'TIMO', 'ACTIONSCH', 'SCHNITZEL'];
-  const LEET = { 0: 'O', 1: 'I', L: 'I', 2: 'Z', 3: 'E', 4: 'A', 5: 'S', 6: 'G', 7: 'T', 8: 'B', 9: 'G', 'Ä': 'A', 'Ö': 'O', 'Ü': 'U' };
-  const simplify = (s) => s.toUpperCase().replace(/[^A-Z0-9ÄÖÜ]/g, '').replace(/./g, (c) => LEET[c] || c);
-  const CHEATER_RES = CHEATERS.map((c) => new RegExp(simplify(c).split('').map((ch) => ch + '+').join(''))); // TIIMO, KIM888
-  const isCheater = (name) => { const n = simplify(name); return CHEATER_RES.some((re) => re.test(n)); };
+  // Bekannte Cheater der Bestenliste: Wen das trifft, entscheidet der Server (Namensliste nur dort, nicht im Quelltext).
+  // Er halbiert die Punkte selbst und antwortet mit witch/from/to; hier läuft nur die Animation.
   const WITCH_SAY = 'NA WENN WIR DA MAL NICHT EINEN UNSERER CHEATER ZURÜCK IM SPIEL HABEN. DANN WOLLEN WIR MAL!';
   const WITCH_UPSI = 'UPSI.. DAS REICHT WOHL NICHT MEHR FÜR EINEN EINTRAG IN DIE LISTE';
   const WITCH_PAL = { k: '#1a1024', y: '#f0c040', h: '#d85a20', g: '#7ac04a', G: '#4e8c30', w: '#ffffff', r: '#a01828',
@@ -1883,12 +1886,12 @@
     return lines;
   }
   let witch = null;
-  function startWitch(name) {
-    const to = Math.floor(score / 2), talkEnd = 1.4 + WITCH_SAY.length / 30;
+  function startWitch(name, res) {
+    const to = res.to, talkEnd = 1.4 + WITCH_SAY.length / 30;
     // Nach dem Spruch wartet die Hexe bei `hold` auf Taste oder Klick, damit man in Ruhe lesen kann
     const hold = talkEnd + 1.0, wave = hold + 0.2, scoreAt = wave + 1.4, countStart = scoreAt + 0.7, countEnd = countStart + 2.5;
-    const ok = qualifies(to);
-    witch = { name, from: score, to, ok, t: 0, go: false, sparks: [], hihi: [], talkEnd, hold, wave, scoreAt, countStart, countEnd,
+    const ok = !!res.rank;
+    witch = { name, from: res.from, to, ok, res, t: 0, go: false, sparks: [], hihi: [], talkEnd, hold, wave, scoreAt, countStart, countEnd,
       end: ok ? countEnd + 1.8 : countEnd + 0.4 + WITCH_UPSI.length / 30 };
     setState('witch');
   }
@@ -1945,7 +1948,7 @@
     f.hihi = f.hihi.filter((h) => h.t < 1.6);
     // Am Ende: Eintrag oder (zu wenig Punkte) mit Taste/Klick zurück ins Menü
     if (f.t < f.end) return;
-    if (f.ok) { witch = null; postScore(f.name, f.to); }
+    if (f.ok) { witch = null; showEntry(f.res); }
     else if (press) { witch = null; setState('title'); }
   }
   function bubble(text, x, y, mx, my, shown) {

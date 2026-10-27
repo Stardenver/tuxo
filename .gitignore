@@ -1,5 +1,7 @@
 # Lokaler Projektkontext (enthält Server- und Kontodaten) – bleibt außerhalb von Git
 CLAUDE.md
+# Geheimnisse der Easter Eggs (Cheat-Code, Hexen-Namen) – nur lokal für die Tests
+tests/geheim.json
 # Laufzeitdaten
 api/data/
 *.sqlite
