@@ -1601,9 +1601,13 @@
     const name = nm.s.split(' ').filter(Boolean).join(' ');
     if (!name) { nm.err = 'BITTE GIB EINEN NAMEN EIN'; return; }
     store.set('tuxo-name', name);
+    if (isCheater(name)) { startWitch(name); return; }
+    postScore(name, score);
+  }
+  function postScore(name, pts) {
     busyText = 'TRAGE DICH EIN ...';
     setState('busy');
-    request(SCORES_API, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, score, levels: levelIdx, run: run.token }) })
+    request(SCORES_API, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, score: pts, levels: levelIdx, run: run.token }) })
       .then((j) => {
         board.list = Array.isArray(j.scores) ? j.scores : []; board.status = 'ok';
         board.attract = false; board.fromGame = true; board.mine = j.rank ? j.rank - 1 : -1;
@@ -1757,6 +1761,193 @@
     ctx.globalAlpha = 1;
   }
 
+  // ---------- Die Hexe (Easter Egg) ----------
+  // Bekannte Cheater der Bestenliste: Eine Hexe halbiert die Punkte, bevor sie eingetragen werden.
+  // Der Name muss eines der Wörter enthalten; ACTIONSCHNITZEL passt nicht in 10 Zeichen, daher reicht der Anfang.
+  const CHEATERS = ['KIM88', 'SAMUEL', 'TIMO', 'ACTIONSCH'];
+  const isCheater = (name) => CHEATERS.some((c) => name.replace(/ /g, '').includes(c));
+  const WITCH_SAY = 'NA WENN WIR DA MAL NICHT EINEN UNSERER CHEATER ZURÜCK IM SPIEL HABEN. DANN WOLLEN WIR MAL!';
+  const WITCH_UPSI = 'UPSI.. DAS REICHT WOHL NICHT MEHR FÜR EINEN EINTRAG IN DIE LISTE';
+  const WITCH_PAL = { k: '#1a1024', y: '#f0c040', h: '#d85a20', g: '#7ac04a', G: '#4e8c30', w: '#ffffff', r: '#a01828',
+    P: '#3a1450', p: '#6a2a8a', b: '#7a4a20', s: '#e0b050' };
+  const WITCH_TOP = [
+    '.............kk.........',
+    '............kkk.........',
+    '...........kkkk.........',
+    '..........kkkkk.........',
+    '.........kkkkkk.........',
+    '........kkkkkkkk........',
+    '........kkkkkkkk........',
+    '.......kyyyyyyyyk.......',
+    '....kkkkkkkkkkkkkkkk....',
+    '.....hhgggggggggghh.....',
+    '.....hhggwkggwkgggh.....',
+    '....hhhgggggggggGGGg....',
+    '....hhggggggggggGGGGG...',
+  ];
+  const WITCH_MOUTH = [[ // zu
+    '....hhgggggggggggg......',
+    '....hhggrrrrrrgggh......',
+    '.....hhgggggggggh.......',
+  ], [ // offen (lacht)
+    '....hhgggrrrrrgggg......',
+    '....hhggrwkwkwrggh......',
+    '.....hhggrrrrrgggh......',
+  ]];
+  const WITCH_BODY = [
+    '......hh.ggGgg.hh.......',
+    '.......hPPpppppPh.......',
+    '.......PpppppppppP......',
+    '......PpppppppppppP.....',
+    '......PppyyyyyyyppP.....',
+    '......PpppppppppppP.....',
+    '.....PpppppppppppppP....',
+    '.....PpppppppppppppP....',
+    '....PppppppppppppppPP...',
+    '....PppppppppppppppppP..',
+    '...PPPPPPPPPPPPPPPPPPP..',
+    '.......kkk.....kkk......',
+    '......kkkk....kkkkk.....',
+  ];
+  const BROOM = [
+    'sss.....................................',
+    'ssssssbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+    'sss.....................................',
+  ];
+  const WITCH_SPR = WITCH_MOUTH.map((m) => outlined(sprite([...WITCH_TOP, ...m, ...WITCH_BODY], WITCH_PAL), '#c8a0ff'));
+  const BROOM_SPR = sprite(BROOM, WITCH_PAL);
+  const WS = 4; // die Hexe wird vierfach vergrößert gezeichnet
+  const smooth = (u) => u * u * (3 - 2 * u);
+  function wrapText(s, max) {
+    const lines = [''];
+    for (const w of s.split(' ')) {
+      const l = lines[lines.length - 1];
+      if (l && (l + ' ' + w).length > max) lines.push(w); else lines[lines.length - 1] = l ? l + ' ' + w : w;
+    }
+    return lines;
+  }
+  let witch = null;
+  function startWitch(name) {
+    const to = Math.floor(score / 2), talkEnd = 1.4 + WITCH_SAY.length / 30;
+    const wave = talkEnd + 1.0, scoreAt = wave + 1.4, countStart = scoreAt + 0.7, countEnd = countStart + 2.5;
+    const ok = qualifies(to);
+    witch = { name, from: score, to, ok, t: 0, sparks: [], hihi: [], talkEnd, wave, scoreAt, countStart, countEnd,
+      end: ok ? countEnd + 1.8 : countEnd + 0.4 + WITCH_UPSI.length / 30 };
+    setState('witch');
+  }
+  function cackle(f, delay = 0) {
+    for (let i = 0; i < 7; i++) Sound.tone(1150 - i * 60, 0.07, { to: 820 - i * 60, type: 'square', vol: 0.07, delay: delay + i * 0.1 });
+    f.hihi.push({ t: -delay });
+  }
+  // Lage der Hexe, ihres Arms und der Zauberstabspitze (Bildschirmkoordinaten)
+  function witchPose(f) {
+    const t = f.t, u = Math.min(1, t / 1.2);
+    const x = Math.round(-110 + 126 * (1 - Math.pow(1 - u, 3))), y = Math.round(84 + Math.sin(t * 2.2) * 4);
+    const waving = t > f.wave && t < f.scoreAt + 0.3;
+    const arm = waving ? -0.55 + Math.sin((t - f.wave) * 14) * 0.4 : t > f.countEnd && !f.ok ? 0.5 : 0.25;
+    const wand = arm - (waving ? 0.25 : 0.7);
+    const sx = 17, sy = 19, hx = sx + Math.cos(arm) * 6, hy = sy + Math.sin(arm) * 6;
+    return { x, y, arm, wand, sx, sy, hx, hy, tip: [x + (hx + Math.cos(wand) * 8) * WS, y + (hy + Math.sin(wand) * 8) * WS] };
+  }
+  function updateWitch(dt) {
+    const f = witch, was = f.t;
+    f.t += dt;
+    const at = (x) => was < x && f.t >= x;
+    if (at(1.4)) cackle(f);
+    if (at(f.talkEnd)) cackle(f, 0.1);
+    if (at(f.wave)) { Sound.tone(300, 1.4, { to: 1800, type: 'triangle', vol: 0.1 }); Sound.melody([1568, 1319, 1568, 1760, 2093], 0.12, { type: 'triangle', vol: 0.06 }); }
+    if (at(f.scoreAt)) {
+      Sound.noise(0.5, { vol: 0.3, freq: 5000, to: 400, type: 'highpass' });
+      for (let k = 0; k < 40; k++) {
+        const a = (k / 40) * Math.PI * 2, s = rnd(40, 120);
+        f.sparks.push({ x: W / 2, y: 150, vx: Math.cos(a) * s, vy: Math.sin(a) * s, t: 0, life: rnd(0.6, 1.1), col: pick(SCH_COLS) });
+      }
+    }
+    if (f.t > f.countStart && f.t < f.countEnd && (time * 30 | 0) % 2) sfx.tally();
+    if (at(f.countEnd)) {
+      if (f.ok) cackle(f, 0.2);
+      else { Sound.melody([392, 330, 262, 196], 0.18, { type: 'triangle', vol: 0.2 }); cackle(f, 0.9); }
+    }
+    // Funken vom Zauberstab zur Mitte
+    const pose = witchPose(f);
+    if (f.t > f.wave && f.t < f.countEnd) for (let k = 0; k < 2; k++) {
+      const [tx, ty] = pose.tip, tgt = f.t < f.scoreAt;
+      const vx = tgt ? (W / 2 - tx) * rnd(0.9, 1.4) : rnd(-30, 30), vy = tgt ? (150 - ty) * rnd(0.9, 1.4) : rnd(-30, 30);
+      f.sparks.push({ x: tx, y: ty, vx, vy, t: 0, life: tgt ? 0.7 : 0.4, col: pick(['#ffe060', '#ffffff', '#c080ff', '#80e0ff']) });
+    }
+    for (let i = f.sparks.length - 1; i >= 0; i--) {
+      const q = f.sparks[i];
+      if ((q.t += dt) >= q.life) { f.sparks.splice(i, 1); continue; }
+      q.x += q.vx * dt; q.y += q.vy * dt;
+    }
+    for (const h of f.hihi) h.t += dt;
+    f.hihi = f.hihi.filter((h) => h.t < 1.6);
+    // Bis zum Ende zählt keine Eingabe; danach Eintrag oder (zu wenig Punkte) zurück ins Menü
+    let any = false;
+    for (const k in hit) { if (hit[k]) any = true; hit[k] = false; }
+    if (f.t < f.end) return;
+    if (f.ok) { witch = null; postScore(f.name, f.to); }
+    else if (any || click) { witch = null; setState('title'); }
+  }
+  function bubble(text, x, y, mx, my, shown) {
+    const lines = wrapText(text, 30), w = 30 * 8 + 16, h = lines.length * 14 + 12;
+    ctx.fillStyle = '#1a1024';
+    ctx.fillRect(x - 1, y - 1, w + 2, h + 2);
+    ctx.fillStyle = '#fff8e8';
+    ctx.fillRect(x, y, w, h);
+    // Spitze zum Mund der Hexe
+    ctx.beginPath(); ctx.moveTo(x + 14, y + h - 1); ctx.lineTo(mx, my); ctx.lineTo(x + 40, y + h - 1); ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = '#1a1024'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(x + 14, y + h); ctx.lineTo(mx, my); ctx.lineTo(x + 40, y + h); ctx.stroke();
+    let left = shown;
+    lines.forEach((l, i) => {
+      if (left > 0) drawText(l.slice(0, left), x + 8, y + 8 + i * 14, '#1a1024', 2, 'left', null);
+      left -= l.length + 1;
+    });
+  }
+  function drawWitch() {
+    const f = witch, t = f.t;
+    drawBackdrop();
+    ctx.fillStyle = 'rgba(6,3,12,0.7)'; ctx.fillRect(0, 0, W, H);
+    const P = witchPose(f), talking = (t > 1.4 && t < f.talkEnd + 1) || (t > f.countEnd && t < f.countEnd + 2.5);
+    const px = (x, y, c) => { ctx.fillStyle = c; ctx.fillRect(Math.round(P.x + x * WS), Math.round(P.y + y * WS), WS, WS); };
+    // Besen, Hexe, Arm mit Zauberstab
+    ctx.drawImage(BROOM_SPR, P.x - 8 * WS, P.y + 26 * WS, BROOM_SPR.width * WS, BROOM_SPR.height * WS);
+    ctx.drawImage(WITCH_SPR[talking && (time * 10 | 0) % 2 ? 1 : 0], P.x, P.y, WITCH_SPR[0].width * WS, WITCH_SPR[0].height * WS);
+    for (let i = 0; i <= 6; i++) px(Math.round(P.sx + Math.cos(P.arm) * i), Math.round(P.sy + Math.sin(P.arm) * i), '#6a2a8a');
+    for (let i = 1; i <= 8; i++) px(Math.round(P.hx + Math.cos(P.wand) * i), Math.round(P.hy + Math.sin(P.wand) * i), '#3a2410');
+    px(Math.round(P.hx), Math.round(P.hy), '#7ac04a');
+    const [tx, ty] = P.tip, star = (time * 12 | 0) % 2 ? '#ffffff' : '#ffe060';
+    ctx.fillStyle = star;
+    ctx.fillRect(tx - 1, ty - 4, 3, 9); ctx.fillRect(tx - 4, ty - 1, 9, 3);
+    for (const q of f.sparks) {
+      ctx.globalAlpha = 1 - q.t / q.life;
+      ctx.fillStyle = q.col; ctx.fillRect(Math.round(q.x), Math.round(q.y), 2, 2);
+    }
+    ctx.globalAlpha = 1;
+    for (const h of f.hihi) if (h.t > 0) {
+      ctx.globalAlpha = clamp(1.6 - h.t, 0, 1);
+      drawText('HIHIHI!', P.x + 60 + h.t * 20, P.y - 4 - h.t * 24, '#a0ff60', 2, 'center');
+      ctx.globalAlpha = 1;
+    }
+    // Sprechblase: erst der Spruch, nach dem Zählen bei zu wenig Punkten das Upsi
+    const mx = P.x + 18 * WS, my = P.y + 14 * WS;
+    if (t > 1.4 && t < f.wave) bubble(WITCH_SAY, 150, 28, mx, my, Math.floor((t - 1.4) * 30));
+    if (!f.ok && t > f.countEnd + 0.4) bubble(WITCH_UPSI, 150, 28, mx, my, Math.floor((t - f.countEnd - 0.4) * 30));
+    // Punkte in der Mitte, zählen rückwärts bis zur Hälfte
+    if (t > f.scoreAt) {
+      const u = clamp((t - f.countStart) / (f.countEnd - f.countStart), 0, 1);
+      const shown = u >= 1 ? f.to : Math.round(f.from - (f.from - f.to) * smooth(u));
+      const pop = Math.min(1, (t - f.scoreAt) / 0.3);
+      ctx.globalAlpha = pop;
+      drawText('PUNKTE', W / 2, 128, '#9a8ac0', 1, 'center');
+      drawText(String(shown), W / 2, 140, u >= 1 ? (f.ok ? '#50d050' : '#ff5050') : '#ffffff', 5, 'center');
+      ctx.globalAlpha = 1;
+    }
+    if (t >= f.end && !f.ok && (time * 2 | 0) % 2) drawText('TASTE ODER KLICK: ZURÜCK ZUM MENÜ', W / 2, 246, '#c8c0e0', 1, 'center');
+  }
+
   // ---------- Titelmenü und Pause ----------
   const MENU = ['SPIELEN', 'LEVEL-EDITOR', 'LEVEL-CODE EINGEBEN', 'BESTENLISTE'];
   let menuSel = 0;
@@ -1807,6 +1998,7 @@
       case 'codeinput': updateCodeInput(); break;
       case 'customdone': updateCustomDone(); break;
       case 'nameentry': updateNameEntry(); break;
+      case 'witch': updateWitch(dt); break;
       case 'scores': updateScores(); break;
       case 'busy': break;
       case 'intro':
@@ -2129,6 +2321,7 @@
     if (state === 'codeinput') { drawCodeInput(); return; }
     if (state === 'busy') { drawBusy(); return; }
     if (state === 'nameentry') { drawNameEntry(); return; }
+    if (state === 'witch') { drawWitch(); return; }
     if (state === 'scores') { drawScores(); return; }
     if (state === 'gameover' && stateT > 0.6) {
       drawTitle();
