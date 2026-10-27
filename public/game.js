@@ -424,7 +424,7 @@
   const K = {
     left: () => keys.ArrowLeft || keys.KeyA,
     right: () => keys.ArrowRight || keys.KeyD,
-    up: () => keys.ArrowUp || keys.KeyW,
+    up: () => keys.Space || keys.ArrowUp || keys.KeyW, // Jetpack (bei leerem Tank: Sprung)
     down: () => keys.ArrowDown || keys.KeyS,
   };
 
@@ -589,7 +589,7 @@
   let p, cam, enemies, shots, pickups, hints, dyn, particles, crumbles, chick, shake, flash, popups, respawn, checkpoint, tally;
   // Zeitwertung: Sollzeit 0,8 s pro Spalte, jede Sekunde darunter bringt TIME_PTS Punkte
   let lvlT = 0, lastTimeBonus = 0;
-  // Überraschung: nach einem Edelstein einmal pro Level ein Laser mit Shift (keine Anzeige, kein Hinweis)
+  // Überraschung: nach einem Edelstein einmal pro Level ein Laser mit B (keine Anzeige, kein Hinweis)
   let laserReady = false, laserUsed = false, beam = null;
   // Easter Egg: selten ersetzt ein C64-Android einen Laufgegner; besiegt bleibt ein C64 liegen (Klick = Arkanoid)
   const C64_CHANCE = 0.15;
@@ -599,6 +599,7 @@
   const clock = (sec) => { const t = Math.floor(sec); return Math.floor(t / 60) + ':' + String(t % 60).padStart(2, '0'); };
   const START_DYN = 6, MAX_DYN = 9;
   const FUEL_BURN = 2.0; // Tankinhalt (100) pro Sekunde bei vollem Schub
+  const JUMP_V = 210; // Sprung bei leerem Tank: gut 2 Kacheln hoch
   // Fallschaden: bis FALL_SAFE px Fallhöhe nichts, darüber FALL_DMG Energie pro px (gleich, ob Tank leer oder losgelassen)
   const FALL_SAFE = 6 * TS, FALL_DMG = 0.4;
 
@@ -732,7 +733,10 @@
     p.thrusting = U && !p.duck && p.fuel > 0;
     p.spool = p.thrusting ? Math.min(1, p.spool + dt * SPOOL_UP) : Math.max(0, p.spool - dt * SPOOL_DOWN);
     const thrust = p.thrusting ? JET * p.spool * (p.vy > 0 ? BRAKE : 1) : 0;
-    p.vy = clamp(p.vy + (GRAV - thrust) * dt, -150, MAX_FALL);
+    // Leerer Tank: Jetpack-Taste springt stattdessen (nur neu gedrückt, nur vom Boden)
+    const jump = consume('Space', 'ArrowUp', 'KeyW');
+    if (jump && p.fuel <= 0 && p.onGround && !p.duck) { p.vy = -JUMP_V; Sound.tone(300, 0.12, { to: 600, vol: 0.12 }); }
+    p.vy = clamp(p.vy + (GRAV - thrust) * dt, Math.min(-150, p.vy), MAX_FALL);
 
     const landing = p.vy > 0;
     moveBody(p, p.vx * dt, p.vy * dt);
@@ -765,7 +769,7 @@
     Sound.setJet(state === 'play' && !paused && p.thrusting ? 0.4 + p.spool * 0.6 : 0);
 
     // Dynamit
-    if (consume('Space') && !dyn && p.dyn > 0) {
+    if (consume('KeyE') && !dyn && p.dyn > 0) {
       p.dyn--;
       dyn = { x: p.x + p.w / 2 - 2, y: p.y + p.h - 8, w: 4, h: 8, vy: Math.max(0, p.vy * 0.3), t: FUSE, tick: 0 };
       sfx.drop();
@@ -2210,9 +2214,10 @@
   const pauseButtons = () => rowButtons(['WEITER', 'NEU VERSUCHEN', mode === 'test' ? 'ZUM EDITOR' : 'AUFGEBEN'], 150);
   function updatePause() {
     const bs = pauseButtons();
-    if (consume('KeyP', 'Escape', 'Enter') || (click && inRect(mouse, bs[0]))) paused = false;
-    else if (consume('KeyR') || (click && inRect(mouse, bs[1]))) { paused = false; die('NEUER VERSUCH'); }
-    else if (consume('KeyQ') || (click && inRect(mouse, bs[2]))) {
+    // P (wie gewohnt) oder Esc setzt fort, alles andere per Maus/Finger
+    if (consume('KeyP', 'Escape') || (click && inRect(mouse, bs[0]))) paused = false;
+    else if (click && inRect(mouse, bs[1])) { paused = false; die('NEUER VERSUCH'); }
+    else if (click && inRect(mouse, bs[2])) {
       paused = false;
       Sound.setJet(0);
       if (mode === 'test') enterEditor();
@@ -2255,7 +2260,7 @@
         if (relicClicked()) { openArk(); break; }
         updatePlayer(dt);
         if (state !== 'play') break;
-        if (consume('ShiftLeft', 'ShiftRight')) fireLaser();
+        if (consume('KeyB')) fireLaser();
         updateDynamite(dt);
         updateCrumbles(dt);
         updateEnemies(dt);
@@ -2543,7 +2548,7 @@
 
     const lines = isTouch
       ? ['STEUERKREUZ: LAUFEN, FLIEGEN, DUCKEN', 'BOOM: DYNAMIT ABLEGEN']
-      : ['PFEIL LINKS/RECHTS: LAUFEN    PFEIL HOCH: JETPACK', 'PFEIL RUNTER: DUCKEN    LEERTASTE: DYNAMIT', 'P: PAUSE    M: TON AN/AUS'];
+      : ['PFEILE ODER WASD: LAUFEN, FLIEGEN, DUCKEN', 'LEERTASTE: JETPACK    E: DYNAMIT', 'P: PAUSE    M: TON AN/AUS'];
     menuRects().forEach((r, i) => {
       const sel = i === menuSel;
       if (sel) { ctx.fillStyle = 'rgba(240,192,64,0.14)'; ctx.fillRect(r.x, r.y, r.w, r.h); }
@@ -2610,7 +2615,7 @@
         drawText(mode === 'test' ? 'ESC: ZURÜCK ZUM EDITOR' : 'EIGENES LEVEL', W / 2, 130, '#ffffff', 1, 'center');
       }
     } else if (state === 'play' && p.empty && !paused) {
-      if ((time * 2 | 0) % 2) drawText('TANK LEER - FESTGESTECKT? P: PAUSE, DANN NEU VERSUCHEN', W / 2, H - 12, '#f0a020', 1, 'center');
+      if ((time * 2 | 0) % 2) drawText('TANK LEER - NUR NOCH SPRINGEN. FESTGESTECKT? P: PAUSE, NEU VERSUCHEN', W / 2, H - 12, '#f0a020', 1, 'center');
     } else if (state === 'dying' && p.deathReason && stateT > 0.3) {
       drawText(p.deathReason, W / 2, 120, '#ff6050', 2, 'center');
     } else if (state === 'clear') {
