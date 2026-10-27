@@ -1834,9 +1834,10 @@
   let witch = null;
   function startWitch(name) {
     const to = Math.floor(score / 2), talkEnd = 1.4 + WITCH_SAY.length / 30;
-    const wave = talkEnd + 1.0, scoreAt = wave + 1.4, countStart = scoreAt + 0.7, countEnd = countStart + 2.5;
+    // Nach dem Spruch wartet die Hexe bei `hold` auf Taste oder Klick, damit man in Ruhe lesen kann
+    const hold = talkEnd + 1.0, wave = hold + 0.2, scoreAt = wave + 1.4, countStart = scoreAt + 0.7, countEnd = countStart + 2.5;
     const ok = qualifies(to);
-    witch = { name, from: score, to, ok, t: 0, sparks: [], hihi: [], talkEnd, wave, scoreAt, countStart, countEnd,
+    witch = { name, from: score, to, ok, t: 0, go: false, sparks: [], hihi: [], talkEnd, hold, wave, scoreAt, countStart, countEnd,
       end: ok ? countEnd + 1.8 : countEnd + 0.4 + WITCH_UPSI.length / 30 };
     setState('witch');
   }
@@ -1847,7 +1848,7 @@
   // Lage der Hexe, ihres Arms und der Zauberstabspitze (Bildschirmkoordinaten)
   function witchPose(f) {
     const t = f.t, u = Math.min(1, t / 1.2);
-    const x = Math.round(-110 + 126 * (1 - Math.pow(1 - u, 3))), y = Math.round(84 + Math.sin(t * 2.2) * 4);
+    const x = Math.round(-110 + 126 * (1 - Math.pow(1 - u, 3))), y = Math.round(84 + Math.sin(time * 2.2) * 4);
     const waving = t > f.wave && t < f.scoreAt + 0.3;
     const arm = waving ? -0.55 + Math.sin((t - f.wave) * 14) * 0.4 : t > f.countEnd && !f.ok ? 0.5 : 0.25;
     const wand = arm - (waving ? 0.25 : 0.7);
@@ -1856,7 +1857,11 @@
   }
   function updateWitch(dt) {
     const f = witch, was = f.t;
-    f.t += dt;
+    // Eingaben zählen nur beim Warten nach dem Spruch und ganz am Ende, sonst werden sie verschluckt
+    let press = click;
+    for (const k in hit) { if (hit[k]) press = true; hit[k] = false; }
+    if (!f.go && f.t >= f.hold && press) { f.go = true; press = false; }
+    f.t = f.go ? f.t + dt : Math.min(f.hold, f.t + dt);
     const at = (x) => was < x && f.t >= x;
     if (at(1.4)) cackle(f);
     if (at(f.talkEnd)) cackle(f, 0.1);
@@ -1887,12 +1892,10 @@
     }
     for (const h of f.hihi) h.t += dt;
     f.hihi = f.hihi.filter((h) => h.t < 1.6);
-    // Bis zum Ende zählt keine Eingabe; danach Eintrag oder (zu wenig Punkte) zurück ins Menü
-    let any = false;
-    for (const k in hit) { if (hit[k]) any = true; hit[k] = false; }
+    // Am Ende: Eintrag oder (zu wenig Punkte) mit Taste/Klick zurück ins Menü
     if (f.t < f.end) return;
     if (f.ok) { witch = null; postScore(f.name, f.to); }
-    else if (any || click) { witch = null; setState('title'); }
+    else if (press) { witch = null; setState('title'); }
   }
   function bubble(text, x, y, mx, my, shown) {
     const lines = wrapText(text, 30), w = 30 * 8 + 16, h = lines.length * 14 + 12;
@@ -1950,6 +1953,7 @@
       drawText(String(shown), W / 2, 140, u >= 1 ? (f.ok ? '#50d050' : '#ff5050') : '#ffffff', 5, 'center');
       ctx.globalAlpha = 1;
     }
+    if (!f.go && t >= f.hold && (time * 2 | 0) % 2) drawText('TASTE ODER KLICK: WEITER', W / 2, 246, '#c8c0e0', 1, 'center');
     if (t >= f.end && !f.ok && (time * 2 | 0) % 2) drawText('TASTE ODER KLICK: ZURÜCK ZUM MENÜ', W / 2, 246, '#c8c0e0', 1, 'center');
   }
 
