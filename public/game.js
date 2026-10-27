@@ -1764,8 +1764,12 @@
   // ---------- Die Hexe (Easter Egg) ----------
   // Bekannte Cheater der Bestenliste: Eine Hexe halbiert die Punkte, bevor sie eingetragen werden.
   // Der Name muss eines der Wörter enthalten; ACTIONSCHNITZEL passt nicht in 10 Zeichen, daher reicht der Anfang.
-  const CHEATERS = ['KIM88', 'SAMUEL', 'TIMO', 'ACTIONSCH'];
-  const isCheater = (name) => CHEATERS.some((c) => name.replace(/ /g, '').includes(c));
+  // Verglichen wird in einer vereinfachten Form, damit T1MO, T.I.M.O, TIIMO, K1M 88 oder SCHN1TZ3L nicht durchrutschen.
+  const CHEATERS = ['KIM88', 'SAMUEL', 'TIMO', 'ACTIONSCH', 'SCHNITZEL'];
+  const LEET = { 0: 'O', 1: 'I', L: 'I', 2: 'Z', 3: 'E', 4: 'A', 5: 'S', 6: 'G', 7: 'T', 8: 'B', 9: 'G', 'Ä': 'A', 'Ö': 'O', 'Ü': 'U' };
+  const simplify = (s) => s.toUpperCase().replace(/[^A-Z0-9ÄÖÜ]/g, '').replace(/./g, (c) => LEET[c] || c);
+  const CHEATER_RES = CHEATERS.map((c) => new RegExp(simplify(c).split('').map((ch) => ch + '+').join(''))); // TIIMO, KIM888
+  const isCheater = (name) => { const n = simplify(name); return CHEATER_RES.some((re) => re.test(n)); };
   const WITCH_SAY = 'NA WENN WIR DA MAL NICHT EINEN UNSERER CHEATER ZURÜCK IM SPIEL HABEN. DANN WOLLEN WIR MAL!';
   const WITCH_UPSI = 'UPSI.. DAS REICHT WOHL NICHT MEHR FÜR EINEN EINTRAG IN DIE LISTE';
   const WITCH_PAL = { k: '#1a1024', y: '#f0c040', h: '#d85a20', g: '#7ac04a', G: '#4e8c30', w: '#ffffff', r: '#a01828',

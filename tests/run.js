@@ -237,9 +237,12 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     location.hash = ''; T.setState('title'); step();
 
     console.log('Die Hexe');
-    const caught = ['KIM88', 'SAMUEL', 'TIMO!!!!!!', 'XTIMOX', 'ACTIONSCHN', 'ACTION SCH'].filter(T.isCheater);
-    ok(caught.length === 6, `erkannte Namen: ${caught.join(', ')}`);
-    ok(!['ACTIONFETA', 'TESTER', 'TIM', 'KIM8'].some(T.isCheater), 'andere Namen bleiben unbehelligt');
+    const names = ['KIM88', 'SAMUEL', 'TIMO!!!!!!', 'XTIMOX', 'ACTIONSCHN', 'ACTION SCH', 'T1MO', 'T.I.M.O', 'TIIMO', 'T-1-M-0',
+      'K1M 88', 'KIM88!', 'KIMBB', 'SAMU3L', '5AMUE1', 'SCHNITZEL', 'SCHN1TZ3L', 'SCHNITZ.EL', '4CT1ON5CH', 'KIM888', 'SSAMUEL'];
+    const missed = names.filter((n) => !T.isCheater(n));
+    ok(!missed.length, `alle ${names.length} Schreibweisen erkannt${missed.length ? ' – nicht: ' + missed.join(', ') : ''}`);
+    const wrong = ['ACTIONFETA', 'TESTER', 'TIM', 'KIM8', 'H4NOVER', 'WOLLE!', 'GERBIL', 'ATODATZEL', 'GOTTKAISER', 'DENVSTARER', 'KIMBERLY', 'TIMBO', 'SAMU'].filter(T.isCheater);
+    ok(!wrong.length, `andere Namen bleiben unbehelligt${wrong.length ? ' – fälschlich: ' + wrong.join(', ') : ''}`);
     const toNameEntry = async (pts) => {
       T.startGame(); run(0.1); await wait(() => T.run.token);
       T.score = pts; T.finishGame(); await wait(() => T.board.status !== 'loading');
