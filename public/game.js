@@ -598,10 +598,13 @@
   const parTime = () => Math.round(lvlW * PAR_PER_COL);
   const clock = (sec) => { const t = Math.floor(sec); return Math.floor(t / 60) + ':' + String(t % 60).padStart(2, '0'); };
   const START_DYN = 6, MAX_DYN = 9;
+  const FUEL_BURN = 2.0; // Tankinhalt (100) pro Sekunde bei vollem Schub
+  // Fallschaden: bis FALL_SAFE px Fallhöhe nichts, darüber FALL_DMG Energie pro px (gleich, ob Tank leer oder losgelassen)
+  const FALL_SAFE = 6 * TS, FALL_DMG = 0.4;
 
   function newPlayer(x, y) {
     return { x, y, w: 10, h: 19, vx: 0, vy: 0, face: 1, onGround: false, duck: false, spool: 0, thrusting: false,
-      anim: 0, energy: 100, dyn: START_DYN, inv: 0 };
+      anim: 0, energy: 100, fuel: 100, fallTop: y, dyn: START_DYN, inv: 0 };
   }
 
   function loadLevel(i) { loadLevelData(LEVELS[i % LEVELS.length]); }
@@ -726,7 +729,7 @@
     p.vx = p.vx < target ? Math.min(target, p.vx + acc * dt) : Math.max(target, p.vx - acc * dt);
 
     // Jetpack: Schub läuft kurz an, wie der Rotor beim Original
-    p.thrusting = U && !p.duck;
+    p.thrusting = U && !p.duck && p.fuel > 0;
     p.spool = p.thrusting ? Math.min(1, p.spool + dt * SPOOL_UP) : Math.max(0, p.spool - dt * SPOOL_DOWN);
     const thrust = p.thrusting ? JET * p.spool * (p.vy > 0 ? BRAKE : 1) : 0;
     p.vy = clamp(p.vy + (GRAV - thrust) * dt, -150, MAX_FALL);
@@ -736,6 +739,19 @@
     p.onGround = rectSolid(p.x, p.y + p.h + 0.02, p.w, 0.5);
     if (p.onGround && landing && p.vy === 0 && p.fallSpeed > 160) burst(p.x + 5, p.y + p.h, 4, ['#8a6a4a', '#6a5040'], { max: 40, g: 200, life: 0.4 });
     p.fallSpeed = p.vy;
+    // Fallhöhe: zählt ab dem Punkt, an dem Tux zuletzt (fast) stand oder schwebte – Abbremsen mit dem Jetpack setzt sie zurück
+    if (p.onGround || p.vy < 60) {
+      const h = p.y - p.fallTop;
+      if (p.onGround && h > FALL_SAFE) {
+        const dmg = Math.round((h - FALL_SAFE) * FALL_DMG);
+        p.energy = Math.max(0, p.energy - dmg);
+        Sound.tone(160, 0.25, { to: 60, type: 'triangle', vol: 0.25 });
+        shake = Math.max(shake, 0.15);
+        popups.push({ x: p.x + p.w / 2, y: p.y - 6, text: 'AUA! -' + dmg, t: 0 });
+        if (p.energy <= 0) { p.fallTop = p.y; die('ZU TIEF GEFALLEN'); return; }
+      }
+      p.fallTop = p.y;
+    }
 
     // Nur innerhalb des sichtbaren Bereichs nach links
     if (p.x < cam.x + 1) { p.x = cam.x + 1; if (p.vx < 0) p.vx = 0; }
@@ -755,9 +771,13 @@
       sfx.drop();
     }
 
-    // Energie
-    p.energy -= dt * (0.62 + round * 0.12);
-    if (p.energy <= 0) { p.energy = 0; die('ENERGIE AUFGEBRAUCHT'); return; }
+    // Treibstoff: nur das Jetpack verbraucht ihn, je nach Schub. Leer geht das Jetpack einfach nicht mehr
+    if (p.thrusting) p.fuel = Math.max(0, p.fuel - dt * FUEL_BURN * (0.3 + 0.7 * p.spool) * (1 + round * 0.1));
+    if (p.fuel <= 0 && !p.empty) {
+      p.empty = true;
+      Sound.tone(220, 0.5, { to: 60, type: 'sawtooth', vol: 0.15 });
+      popups.push({ x: p.x + p.w / 2, y: p.y - 6, text: 'TANK LEER!', t: 0 });
+    }
 
     // Lava
     if (rectTiles(p.x - 1, p.y - 1, p.w + 2, p.h + 2, (t) => t === 'L')) { die(); return; }
@@ -981,7 +1001,7 @@
       sfx.clear();
       burst(chick.x + 5, chick.y, 20, ['#ff6080', '#ffffff', '#ffd050'], { max: 80, up: 60, g: 80, life: 1.2 });
       lastTimeBonus = Math.max(0, Math.floor(parTime() - lvlT)) * TIME_PTS;
-      tally = { energy: Math.floor(p.energy), dyn: p.dyn, time: lvlT, par: parTime(), tb: lastTimeBonus, tbShown: lastTimeBonus, t: 0, phase: 0 };
+      tally = { energy: Math.floor(p.energy), fuel: Math.floor(p.fuel), energyShown: Math.floor(p.energy), fuelShown: Math.floor(p.fuel), dyn: p.dyn, time: lvlT, par: parTime(), tb: lastTimeBonus, tbShown: lastTimeBonus, t: 0, phase: 0 };
       setState('clear');
     }
   }
@@ -2186,11 +2206,13 @@
     if (a.phase === 'lost') drawText('GAME OVER', AK.x + AK.w / 2, AF.y + 80, '#b86962', 3, 'center');
   }
 
-  const pauseButtons = () => rowButtons(['WEITER', mode === 'test' ? 'ZUM EDITOR' : 'AUFGEBEN'], 150);
+  // NEU VERSUCHEN: kostet ein Leben, z. B. wenn Tux mit leerem Tank oder ohne Dynamit festsitzt
+  const pauseButtons = () => rowButtons(['WEITER', 'NEU VERSUCHEN', mode === 'test' ? 'ZUM EDITOR' : 'AUFGEBEN'], 150);
   function updatePause() {
     const bs = pauseButtons();
     if (consume('KeyP', 'Escape', 'Enter') || (click && inRect(mouse, bs[0]))) paused = false;
-    else if (consume('KeyQ') || (click && inRect(mouse, bs[1]))) {
+    else if (consume('KeyR') || (click && inRect(mouse, bs[1]))) { paused = false; die('NEUER VERSUCH'); }
+    else if (consume('KeyQ') || (click && inRect(mouse, bs[2]))) {
       paused = false;
       Sound.setJet(0);
       if (mode === 'test') enterEditor();
@@ -2263,8 +2285,9 @@
         tally.t += dt;
         if (tally.phase === 0 && tally.t > 1.2) tally.phase = 1;
         if (tally.phase === 1) {
-          const n = Math.min(tally.energy, 2);
-          if (n > 0) { tally.energy -= n; addScore(n * 10); if ((time * 30 | 0) % 2) sfx.tally(); }
+          // Energie und Tank je 5 Punkte pro Einheit (zusammen höchstens 1000 – wie die Grenze in api/app.py)
+          const k = tally.energy > 0 ? 'energy' : 'fuel', n = Math.min(tally[k], 2);
+          if (n > 0) { tally[k] -= n; addScore(n * 5); if ((time * 30 | 0) % 2) sfx.tally(); }
           else { tally.phase = 2; tally.t = 0; }
         } else if (tally.phase === 2 && tally.t > 0.3) {
           if (tally.dyn > 0) { tally.dyn--; addScore(50); sfx.tally(); tally.t = 0.05; }
@@ -2448,12 +2471,15 @@
     ctx.fillStyle = '#4a3a6a'; ctx.fillRect(0, HUD - 1, W, 1);
     drawText('PUNKTE', 4, 5, '#9a8ac0', 1, 'left', null);
     drawText(String(score).padStart(6, '0'), 31, 5, '#ffffff', 1, 'left', null);
-    drawText('ENERGIE', 66, 5, '#9a8ac0', 1, 'left', null);
-    const e = p ? p.energy : 100;
-    ctx.fillStyle = '#2a2040'; ctx.fillRect(96, 4, 102, 7);
-    ctx.fillStyle = e > 30 ? '#50d050' : (time * 4 | 0) % 2 ? '#ff4040' : '#a02020';
-    ctx.fillRect(97, 5, Math.round(e), 5);
-    ctx.fillStyle = 'rgba(255,255,255,0.35)'; ctx.fillRect(97, 5, Math.round(e), 1);
+    const bar = (label, lx, bx, v, col) => {
+      drawText(label, lx, 5, '#9a8ac0', 1, 'left', null);
+      ctx.fillStyle = '#2a2040'; ctx.fillRect(bx, 4, 42, 7);
+      ctx.fillStyle = v > 25 ? col : (time * 4 | 0) % 2 ? '#ff4040' : '#a02020';
+      ctx.fillRect(bx + 1, 5, Math.round(v * 0.4), 5);
+      ctx.fillStyle = 'rgba(255,255,255,0.35)'; ctx.fillRect(bx + 1, 5, Math.round(v * 0.4), 1);
+    };
+    bar('ENERGIE', 60, 89, p ? p.energy : 100, '#50d050');
+    bar('TANK', 136, 154, p ? p.fuel : 100, '#f0a020');
     const d = p ? p.dyn : START_DYN;
     for (let i = 0; i < d; i++) ctx.drawImage(SPR.dynIcon, 208 + i * 5, 4);
     for (let i = 0; i < Math.min(lives, 6); i++) ctx.drawImage(SPR.life, 262 + i * 9, 4);
@@ -2571,6 +2597,7 @@
     }
     drawWorld();
     drawHUD();
+    if (mode === 'campaign' && curLevel && curLevel.ki) drawText('LEVEL VON ' + curLevel.ki, W - 4, H - 9, '#8878a8', 1, 'right');
     if (state === 'arkanoid') { drawArk(); return; }
     if (state === 'intro') {
       dim(Math.max(0, 0.7 - Math.max(0, stateT - 1.6)));
@@ -2582,13 +2609,15 @@
         drawText(curLevel.name, W / 2, 100, '#f0c040', 3, 'center');
         drawText(mode === 'test' ? 'ESC: ZURÜCK ZUM EDITOR' : 'EIGENES LEVEL', W / 2, 130, '#ffffff', 1, 'center');
       }
+    } else if (state === 'play' && p.empty && !paused) {
+      if ((time * 2 | 0) % 2) drawText('TANK LEER - FESTGESTECKT? P: PAUSE, DANN NEU VERSUCHEN', W / 2, H - 12, '#f0a020', 1, 'center');
     } else if (state === 'dying' && p.deathReason && stateT > 0.3) {
       drawText(p.deathReason, W / 2, 120, '#ff6050', 2, 'center');
     } else if (state === 'clear') {
       dim(0.5);
-      box(['KÜKEN GERETTET!', '', 'ENERGIE-BONUS  ' + tally.energy * 10, 'DYNAMIT-BONUS  ' + tally.dyn * 50,
+      box(['KÜKEN GERETTET!', '', 'ENERGIE-BONUS  ' + tally.energyShown * 5, 'TANK-BONUS  ' + tally.fuelShown * 5, 'DYNAMIT-BONUS  ' + tally.dyn * 50,
         'ZEIT ' + clock(tally.time) + ' (SOLL ' + clock(tally.par) + ')  ZEIT-BONUS  ' + tally.tbShown, '', 'PUNKTE ' + score],
-        ['#ffd050', '', '#50d050', '#ff9060', '#60d0ff', '', '#ffffff']);
+        ['#ffd050', '', '#50d050', '#f0a020', '#ff9060', '#60d0ff', '', '#ffffff']);
     } else if (state === 'gameover') {
       dim(stateT);
     } else if (state === 'customdone') {

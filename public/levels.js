@@ -6,10 +6,13 @@
 //  P  Start           C  Küken (Ziel)               +  Dynamit (+3)        *  Edelstein
 //  b  Fledermaus      s  Spinne                     w  Käfer               A  Axt-Troll
 //  T  Laser (schießt nach links)    R  Laser (schießt nach rechts)       1-9  Hinweistext
+//
+// ki: wer das Level gebaut hat (wird im Spiel unten rechts angezeigt). Neue Level: tools/level-check.js
 'use strict';
 window.TUXO_LEVELS = [
   {
     name: 'DER EINGANG',
+    ki: 'CLAUDE',
     hints: {
       1: 'PFEILTASTEN: LAUFEN\nPFEIL HOCH: JETPACK - JE LÄNGER, DESTO HÖHER',
       2: 'LEERTASTE: DYNAMIT ABLEGEN\nUND DANN SCHNELL WEG!',
@@ -111,6 +114,7 @@ window.TUXO_LEVELS = [
   },
   {
     name: 'TIEFE SCHÄCHTE',
+    ki: 'CLAUDE',
     hints: {
       1: 'TÜREN UND RISSIGE WÄNDE\nLASSEN SICH SPRENGEN',
       2: 'VORSICHT: LAVA IST TÖDLICH!',
@@ -211,6 +215,7 @@ window.TUXO_LEVELS = [
   },
   {
     name: 'LAVAHÖHLEN',
+    ki: 'CLAUDE',
     hints: {
       1: 'KÄFER, SPINNEN UND TROLLE:\nGEGEN MONSTER HILFT NUR DYNAMIT',
     },
@@ -291,6 +296,7 @@ window.TUXO_LEVELS = [
   },
   {
     name: 'DAS HERZ DES BERGES',
+    ki: 'CLAUDE',
     hints: {},
     segments: [
       [

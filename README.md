@@ -11,7 +11,7 @@ kleine API dazu.
 | Taste | Aktion |
 |---|---|
 | Pfeil links / rechts | laufen |
-| Pfeil hoch | Jetpack – je länger gedrückt, desto höher; mit dem richtigen Rhythmus kann man schweben |
+| Pfeil hoch | Jetpack – je länger gedrückt, desto höher; mit dem richtigen Rhythmus kann man schweben. Das Jetpack verbraucht Treibstoff (Anzeige TANK) – ist er alle, stürzt Tux ab |
 | Pfeil runter | ducken (am Boden), weicht Lasern und Äxten aus |
 | Leertaste | Dynamit ablegen (explodiert nach 2 Sekunden) |
 | P / Esc | Pause |
@@ -21,7 +21,7 @@ Auf Touch-Geräten erscheinen Bildschirmknöpfe.
 
 ## Punkte und Bestenliste
 
-Punkte gibt es für Monster, Wände, Edelsteine und am Levelende für übrige Energie und übriges Dynamit.
+Punkte gibt es für Monster, Wände, Edelsteine und am Levelende für übrigen Treibstoff und übriges Dynamit.
 Dazu kommt ein **Zeitbonus**: Jedes Level hat eine Sollzeit (0,8 Sekunden pro Spalte), jede Sekunde
 darunter bringt 20 Punkte. Die Uhr läuft oben im Bild und wird rot, sobald die Sollzeit vorbei ist.
 

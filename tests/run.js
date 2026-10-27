@@ -52,6 +52,32 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
       });
     });
 
+    console.log('Level-Prüfung für KI-Level (tools/level-check.js)');
+    {
+      const { checkLevel, extractJson, toLevelsJs } = require('../tools/level-check');
+      window.TUXO_LEVELS.forEach((L, i) => {
+        const r = checkLevel(L, T.checkRows);
+        ok(!r.errors.length && L.ki, `Level ${i + 1} besteht die KI-Prüfung (${r.errors.join('; ') || 'von ' + L.ki})`);
+      });
+      const base = JSON.parse(JSON.stringify(window.TUXO_LEVELS[0]));
+      const bad = (mutate) => { const L = JSON.parse(JSON.stringify(base)); mutate(L); return checkLevel(L, T.checkRows).errors; };
+      ok(bad((L) => { delete L.ki; }).length, 'ohne KI-Namen: Fehler');
+      ok(bad((L) => { L.segments[1][5] = L.segments[1][5].slice(1); }).length, 'ungleich lange Zeilen: Fehler');
+      ok(bad((L) => { L.segments[1] = L.segments[1].map((r) => '#' + r.slice(1)); }).length, 'Naht zwischen Abschnitten passt nicht: Fehler');
+      ok(bad((L) => { L.segments[4] = L.segments[4].map((r) => r.replace(/[^#]/g, '#')); L.segments[3] = L.segments[3].map((r, y) => y === 6 ? r.slice(0, -1) + 'C' : r.replace('C', '.')); }).length, 'Küken eingemauert oder Naht kaputt: Fehler');
+      // Rückweg: Küken ganz links hinter dem Start – mit der Kamera nicht erreichbar
+      const back = bad((L) => {
+        const rows = Array.from({ length: 16 }, (_, y) => (y < 3 || y > 12 ? '#'.repeat(40) : '#' + '.'.repeat(38) + '#'));
+        rows[12] = '#C' + '.'.repeat(30) + 'P' + '.'.repeat(6) + '#';
+        L.segments = [rows]; L.hints = {};
+      });
+      ok(back.some((m) => /nach links/.test(m)), `Küken nur durch Zurücklaufen erreichbar: Fehler (${back[0]})`);
+      ok(extractJson('Hier ist dein Level:\n```json\n{"a": 1}\n```\nViel Spaß').a === 1, 'JSON wird aus einer KI-Antwort mit Codeblock gelesen');
+      const js = toLevelsJs({ ...base, name: "DAS 'LOCH'", ki: 'Gemini 2.5 Pro' });
+      const back2 = Function('return ' + js.trim().replace(/,$/, ''))();
+      ok(back2.name === "DAS 'LOCH'" && back2.ki === 'GEMINI 2.5 PRO' && back2.segments.length === base.segments.length, 'Ausgabe für levels.js ist gültiges JavaScript');
+    }
+
     console.log('Schnitzel-Modus');
     const typeCode = () => { for (const c of 'IDDQDIDKFA') tap('Key' + c); step(); };
     typeCode();
@@ -83,6 +109,36 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     const vFall = T.p.vy, yFall = T.p.y; key('ArrowUp', true); run(1, () => T.p.vy <= 0); key('ArrowUp', false);
     ok(T.p.y - yFall < 48, `Abfangen aus dem Fall (${vFall.toFixed(0)} px/s) nach ${(T.p.y - yFall).toFixed(0)} px`);
     run(2);
+    {
+      const f0 = T.p.fuel; run(3);
+      ok(T.p.fuel === f0, 'Treibstoff: Stehen kostet nichts');
+      press('ArrowUp', 1); run(1.5);
+      const used = f0 - T.p.fuel;
+      ok(used > 1 && used < 3, `1 s Jetpack verbraucht ${used.toFixed(1)} von 100`);
+      const lives0 = T.lives; T.p.fuel = 0.5; T.p.energy = 100; // frühere Flüge im Test haben schon Fallschaden gemacht
+      key('ArrowUp', true); run(1); key('ArrowUp', false); run(1.5);
+      ok(T.p.empty && T.p.fuel === 0 && !T.p.thrusting && T.state === 'play' && T.p.energy === 100, 'leerer Tank: Jetpack setzt aus, sonst passiert nichts');
+      const y0 = T.p.y; key('ArrowUp', true); run(1); key('ArrowUp', false);
+      ok(T.p.y === y0, 'mit leerem Tank kein Abheben');
+      T.p.fuel = 100; T.p.empty = false;
+      press('ArrowUp', 0.6); run(2);
+      ok(T.p.energy === 100, 'kleiner Sprung (ca. 4 Kacheln): kein Fallschaden');
+      press('ArrowUp', 2.2); const top = T.p.y; run(2);
+      const dmg = 100 - T.p.energy;
+      ok(T.p.y - top > 6 * 16 && dmg > 0 && dmg < 30, `tiefer Fall (${((T.p.y - top) / 16).toFixed(1)} Kacheln): ${dmg} Energie Schaden`);
+      const e1 = T.p.energy;
+      press('ArrowUp', 2.2); run(0.5);
+      key('ArrowUp', true); run(0.4, () => T.p.vy < 50); key('ArrowUp', false);
+      ok(T.p.vy < 60, 'gleiche Höhe, aber mit dem Jetpack abgebremst ...'); run(0.25); key('ArrowUp', true); run(0.15); key('ArrowUp', false); run(2);
+      ok(T.p.energy >= e1 - 5, `... kaum Fallschaden (${e1 - T.p.energy})`);
+      T.p.fuel = 0; T.p.empty = true;
+      tap('KeyP'); step();
+      clickAt(...mid(T.pauseButtons()[1])); release();
+      ok(T.state === 'dying', 'Pause -> NEU VERSUCHEN kostet ein Leben');
+      run(2.5, () => T.state === 'play');
+      ok(T.lives === lives0 - 1 && T.p.fuel === 100 && T.p.energy === 100 && !T.p.empty, 'danach voller Tank und volle Energie');
+      run(2.1);
+    }
     press('ArrowRight', 4); press('ArrowLeft', 5);
     ok(T.p.x >= T.cam.x, 'nach links nur im sichtbaren Bereich');
     key('ArrowRight', true);
@@ -93,10 +149,11 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     ok(T.dyn && T.p.dyn === dyn0 - 1, 'Dynamit gelegt');
     press('ArrowLeft', 1.2); run(1.5);
     ok(!T.grid.some((r) => r.includes('X')) && T.state === 'play', 'Wand komplett gesprengt, Tux lebt');
+    const livesDyn = T.lives;
     tap('Space'); run(2.3);
     ok(T.state === 'dying', 'neben dem eigenen Dynamit stehen bleiben = Lebensverlust');
     run(2.5);
-    ok(T.state === 'play' && T.lives === 2, 'Neustart am Rücksetzpunkt');
+    ok(T.state === 'play' && T.lives === livesDyn - 1, 'Neustart am Rücksetzpunkt');
     // Laser-Korridor
     T.p.x = 63 * 16; T.p.y = 189; T.cam.x = 63 * 16 - 200; T.p.inv = 0;
     key('ArrowDown', true); let shots = 0; run(5); for (let i = 0; i < 300; i++) { step(); if (T.shots.length) shots++; }
