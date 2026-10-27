@@ -1669,7 +1669,9 @@
   const SCH_COLS = ['#ff6080', '#ffd050', '#60d0ff', '#80ff80', '#ffffff', '#ff9020', '#c080ff'];
   const pick = (a) => a[Math.floor(Math.random() * a.length)];
   const easeOutBack = (x) => 1 + 2.70158 * Math.pow(x - 1, 3) + 1.70158 * Math.pow(x - 1, 2);
-  const schImg = typeof Image === 'function' ? Object.assign(new Image(), { src: 'schnitzel.png' }) : null;
+  // Bild nur für die Animation; geladen wird es, sobald jemand den Code zu tippen beginnt
+  let schImg = null;
+  function loadSchImg() { if (!schImg && typeof Image === 'function') schImg = Object.assign(new Image(), { src: 'schnitzel.png' }); }
   let cheatBuf = '', schnitzel = false, schFx = null;
   function setSkin(on) {
     schnitzel = on;
@@ -1678,7 +1680,9 @@
   function cheatKey(ch) {
     if (schFx) return;
     cheatBuf = (cheatBuf + ch).slice(-CHEAT.length);
+    for (let k = 3; k <= cheatBuf.length; k++) if (CHEAT.startsWith(cheatBuf.slice(-k))) loadSchImg();
     if (cheatBuf !== CHEAT) return;
+    loadSchImg();
     cheatBuf = '';
     setSkin(!schnitzel);
     store.set('tuxo-schnitzel', schnitzel ? '1' : '0');
