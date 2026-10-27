@@ -37,7 +37,7 @@ function load(apiBase) {
   const hook = `window.__t = { update, draw, loadLevel, startGame, setState, keys, hit, mouse, ed, genLevel, checkRows,
     enterEditor, loadByCode, menuRects, ED_BUTTONS, TOOL_RECT, TOOLS,
     get p() { return p; }, get state() { return state; }, get mode() { return mode; }, get grid() { return grid; },
-    get cam() { return cam; }, get shots() { return shots; }, get dyn() { return dyn; }, get chick() { return chick; },
+    get cam() { return cam; }, get shots() { return shots; }, get dyns() { return dyns; }, get chick() { return chick; },
     get score() { return score; }, get lives() { return lives; }, get curCode() { return curCode; },
     SPR, SKINS, get schnitzel() { return schnitzel; }, get schFx() { return schFx; },
     board, qualifies, finishGame, afterGameOver, set score(v) { score = v; }, get nm() { return nm; }, get run() { return run; },
@@ -46,7 +46,7 @@ function load(apiBase) {
     set forceC64(v) { forceC64 = v; }, pauseButtons, get paused() { return paused; },
     get lvlT() { return lvlT; }, set lvlT(v) { lvlT = v; }, get lastTimeBonus() { return lastTimeBonus; }, parTime,
     startCustom, get enemies() { return enemies; }, get pickups() { return pickups; },
-    get laserReady() { return laserReady; }, get laserUsed() { return laserUsed; }, get beam() { return beam; } };
+    get laserShots() { return laserShots; }, get beam() { return beam; } };
   requestAnimationFrame(frame);
 })();`;
   const before = src;

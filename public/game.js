@@ -586,11 +586,11 @@
   let mode = 'campaign', curLevel = null, curRows = null, curCode = ''; // mode: campaign | test | custom
   let levelIdx = 0, round = 0, score = 0, lives = 3, nextLife = 20000;
   let hiscore = parseInt(store.get('tuxo-hiscore') || '0', 10) || 0;
-  let p, cam, enemies, shots, pickups, hints, dyn, particles, crumbles, chick, shake, flash, popups, respawn, checkpoint, tally;
+  let p, cam, enemies, shots, pickups, hints, dyns, particles, crumbles, chick, shake, flash, popups, respawn, checkpoint, tally;
   // Zeitwertung: Sollzeit 0,8 s pro Spalte, jede Sekunde darunter bringt TIME_PTS Punkte
   let lvlT = 0, lastTimeBonus = 0;
-  // Überraschung: nach einem Edelstein einmal pro Level ein Laser mit B (keine Anzeige, kein Hinweis)
-  let laserReady = false, laserUsed = false, beam = null;
+  // Überraschung: jeder Edelstein lädt einen Laserschuss (Taste B), Ladungen gelten pro Level (keine Anzeige, kein Hinweis)
+  let laserShots = 0, beam = null;
   // Easter Egg: selten ersetzt ein C64-Android einen Laufgegner; besiegt bleibt ein C64 liegen (Klick = Arkanoid)
   const C64_CHANCE = 0.15;
   let relic = null, forceC64 = false, ark = null;
@@ -600,12 +600,12 @@
   const START_DYN = 6, MAX_DYN = 9;
   const FUEL_BURN = 2.0; // Tankinhalt (100) pro Sekunde bei vollem Schub
   const JUMP_V = 210; // Sprung bei leerem Tank: gut 2 Kacheln hoch
-  // Fallschaden: bis FALL_SAFE px Fallhöhe nichts, darüber FALL_DMG Energie pro px (gleich, ob Tank leer oder losgelassen)
+  // Fallschaden: bis FALL_SAFE px Fallhöhe nichts, darüber FALL_DMG Gesundheit pro px (gleich, ob Tank leer oder losgelassen)
   const FALL_SAFE = 6 * TS, FALL_DMG = 0.4;
 
   function newPlayer(x, y) {
     return { x, y, w: 10, h: 19, vx: 0, vy: 0, face: 1, onGround: false, duck: false, spool: 0, thrusting: false,
-      anim: 0, energy: 100, fuel: 100, fallTop: y, dyn: START_DYN, inv: 0 };
+      anim: 0, health: 100, fuel: 100, fallTop: y, dyn: START_DYN, inv: 0 };
   }
 
   function loadLevel(i) { loadLevelData(LEVELS[i % LEVELS.length]); }
@@ -618,8 +618,8 @@
     let acc = 0;
     for (const s of L.segments) { segStarts.push(acc); acc += s[0].length; }
     enemies = []; shots = []; pickups = []; hints = []; particles = []; crumbles = []; popups = [];
-    dyn = null; chick = null; shake = 0; flash = 0; lvlT = 0;
-    laserReady = laserUsed = false; beam = null;
+    dyns = []; chick = null; shake = 0; flash = 0; lvlT = 0;
+    laserShots = 0; beam = null;
     const speed = 1 + round * 0.25;
     let start = null;
     for (let ty = 0; ty < ROWS; ty++) for (let tx = 0; tx < lvlW; tx++) {
@@ -748,11 +748,11 @@
       const h = p.y - p.fallTop;
       if (p.onGround && h > FALL_SAFE) {
         const dmg = Math.round((h - FALL_SAFE) * FALL_DMG);
-        p.energy = Math.max(0, p.energy - dmg);
+        p.health = Math.max(0, p.health - dmg);
         Sound.tone(160, 0.25, { to: 60, type: 'triangle', vol: 0.25 });
         shake = Math.max(shake, 0.15);
         popups.push({ x: p.x + p.w / 2, y: p.y - 6, text: 'AUA! -' + dmg, t: 0 });
-        if (p.energy <= 0) { p.fallTop = p.y; die('ZU TIEF GEFALLEN'); return; }
+        if (p.health <= 0) { p.fallTop = p.y; die('ZU TIEF GEFALLEN'); return; }
       }
       p.fallTop = p.y;
     }
@@ -769,9 +769,10 @@
     Sound.setJet(state === 'play' && !paused && p.thrusting ? 0.4 + p.spool * 0.6 : 0);
 
     // Dynamit
-    if (consume('KeyE') && !dyn && p.dyn > 0) {
+    // Jeder Druck legt sofort eine Stange – mehrere dürfen gleichzeitig brennen (Speedruns)
+    if (consume('KeyE') && p.dyn > 0) {
       p.dyn--;
-      dyn = { x: p.x + p.w / 2 - 2, y: p.y + p.h - 8, w: 4, h: 8, vy: Math.max(0, p.vy * 0.3), t: FUSE, tick: 0 };
+      dyns.push({ x: p.x + p.w / 2 - 2, y: p.y + p.h - 8, w: 4, h: 8, vy: Math.max(0, p.vy * 0.3), t: FUSE, tick: 0 });
       sfx.drop();
     }
 
@@ -806,15 +807,16 @@
 
   // ---------- Dynamit & Explosion ----------
   function updateDynamite(dt) {
-    if (!dyn) return;
-    dyn.vy = Math.min(dyn.vy + GRAV * dt, 300);
-    moveBody(dyn, 0, dyn.vy * dt);
-    dyn.t -= dt;
-    dyn.tick -= dt;
-    if (dyn.tick <= 0) { dyn.tick = 0.12; sfx.tick(); }
-    if (Math.random() < 0.6) particles.push({ x: dyn.x + 1, y: dyn.y, vx: rnd(-25, 25), vy: rnd(-50, -10), life: 0.25, t: 0,
-      col: Math.random() < 0.5 ? '#ffffa0' : '#ffb020', g: 200, size: 1 });
-    if (dyn.t <= 0) { explode(dyn.x + 2, dyn.y + 4); dyn = null; }
+    for (const dyn of [...dyns]) {
+      dyn.vy = Math.min(dyn.vy + GRAV * dt, 300);
+      moveBody(dyn, 0, dyn.vy * dt);
+      dyn.t -= dt;
+      dyn.tick -= dt;
+      if (dyn.tick <= 0) { dyn.tick = 0.12; sfx.tick(); }
+      if (Math.random() < 0.6) particles.push({ x: dyn.x + 1, y: dyn.y, vx: rnd(-25, 25), vy: rnd(-50, -10), life: 0.25, t: 0,
+        col: Math.random() < 0.5 ? '#ffffa0' : '#ffb020', g: 200, size: 1 });
+      if (dyn.t <= 0) { dyns.splice(dyns.indexOf(dyn), 1); explode(dyn.x + 2, dyn.y + 4); }
+    }
   }
 
   function explode(cx, cy) {
@@ -875,8 +877,8 @@
 
   // ---------- Laser ----------
   function fireLaser() {
-    if (!laserReady || laserUsed) return;
-    laserReady = false; laserUsed = true;
+    if (laserShots <= 0) return;
+    laserShots--;
     const dir = p.face > 0 ? 1 : -1, y = p.y + (p.duck ? 4 : 8), ty = Math.floor(y / TS);
     const x0 = dir > 0 ? p.x + p.w : p.x;
     const edge = dir > 0 ? cam.x + W : cam.x;
@@ -997,7 +999,7 @@
       if (!overlap(p, k)) continue;
       pickups.splice(i, 1);
       if (k.kind === 'dyn') { p.dyn = Math.min(MAX_DYN, p.dyn + 3); sfx.pickup(); popups.push({ x: k.x + 4, y: k.y - 4, text: '+3 DYNAMIT', t: 0 }); }
-      else { sfx.gem(); addScore(250, k.x + 4, k.y - 4); if (!laserUsed) laserReady = true; }
+      else { sfx.gem(); addScore(250, k.x + 4, k.y - 4); laserShots++; }
     }
     if (chick && !chick.saved && overlap(p, chick)) {
       chick.saved = true;
@@ -1005,7 +1007,7 @@
       sfx.clear();
       burst(chick.x + 5, chick.y, 20, ['#ff6080', '#ffffff', '#ffd050'], { max: 80, up: 60, g: 80, life: 1.2 });
       lastTimeBonus = Math.max(0, Math.floor(parTime() - lvlT)) * TIME_PTS;
-      tally = { energy: Math.floor(p.energy), fuel: Math.floor(p.fuel), energyShown: Math.floor(p.energy), fuelShown: Math.floor(p.fuel), dyn: p.dyn, time: lvlT, par: parTime(), tb: lastTimeBonus, tbShown: lastTimeBonus, t: 0, phase: 0 };
+      tally = { health: Math.floor(p.health), fuel: Math.floor(p.fuel), healthShown: Math.floor(p.health), fuelShown: Math.floor(p.fuel), dyn: p.dyn, time: lvlT, par: parTime(), tb: lastTimeBonus, tbShown: lastTimeBonus, t: 0, phase: 0 };
       setState('clear');
     }
   }
@@ -2279,7 +2281,7 @@
         if (stateT > 1.8) {
           if (mode !== 'test') lives--;
           if (lives < 0) { finishGame(); break; }
-          shots = []; dyn = null;
+          shots = []; dyns = [];
           const keepDyn = Math.max(p.dyn, 3);
           p = Object.assign(newPlayer(respawn.x, respawn.y), { dyn: keepDyn, inv: 2 });
           // Gegner, die direkt am Rücksetzpunkt stehen würden, bleiben trotzdem aktiv – dafür kurze Unverwundbarkeit
@@ -2293,8 +2295,8 @@
         tally.t += dt;
         if (tally.phase === 0 && tally.t > 1.2) tally.phase = 1;
         if (tally.phase === 1) {
-          // Energie und Tank je 5 Punkte pro Einheit (zusammen höchstens 1000 – wie die Grenze in api/app.py)
-          const k = tally.energy > 0 ? 'energy' : 'fuel', n = Math.min(tally[k], 2);
+          // Gesundheit und Tank je 5 Punkte pro Einheit (zusammen höchstens 1000 – wie ENERGY_PTS in api/app.py)
+          const k = tally.health > 0 ? 'health' : 'fuel', n = Math.min(tally[k], 2);
           if (n > 0) { tally[k] -= n; addScore(n * 5); if ((time * 30 | 0) % 2) sfx.tally(); }
           else { tally.phase = 2; tally.t = 0; }
         } else if (tally.phase === 2 && tally.t > 0.3) {
@@ -2417,7 +2419,7 @@
     }
 
     // Dynamit
-    if (dyn) {
+    for (const dyn of dyns) {
       ctx.drawImage(SPR.dyn, Math.round(dyn.x), Math.round(dyn.y));
       if ((time * 20 | 0) % 2) { ctx.fillStyle = '#ffffff'; ctx.fillRect(Math.round(dyn.x + 1), Math.round(dyn.y) - 1, 1, 1); }
     }
@@ -2486,10 +2488,10 @@
       ctx.fillRect(bx + 1, 5, Math.round(v * 0.4), 5);
       ctx.fillStyle = 'rgba(255,255,255,0.35)'; ctx.fillRect(bx + 1, 5, Math.round(v * 0.4), 1);
     };
-    bar('ENERGIE', 60, 89, p ? p.energy : 100, '#50d050');
-    bar('TANK', 136, 154, p ? p.fuel : 100, '#f0a020');
+    bar('GESUNDHEIT', 60, 101, p ? p.health : 100, '#50d050');
+    bar('TANK', 148, 165, p ? p.fuel : 100, '#f0a020');
     const d = p ? p.dyn : START_DYN;
-    for (let i = 0; i < d; i++) ctx.drawImage(SPR.dynIcon, 208 + i * 5, 4);
+    for (let i = 0; i < d; i++) ctx.drawImage(SPR.dynIcon, 212 + i * 5, 4);
     for (let i = 0; i < Math.min(lives, 6); i++) ctx.drawImage(SPR.life, 262 + i * 9, 4);
     drawText('ZEIT', 322, 5, '#9a8ac0', 1, 'left', null);
     drawText(clock(lvlT), 341, 5, lvlW && lvlT > parTime() ? '#ff8060' : '#ffffff', 1, 'left', null);
@@ -2623,7 +2625,7 @@
       drawText(p.deathReason, W / 2, 120, '#ff6050', 2, 'center');
     } else if (state === 'clear') {
       dim(0.5);
-      box(['KÜKEN GERETTET!', '', 'ENERGIE-BONUS  ' + tally.energyShown * 5, 'TANK-BONUS  ' + tally.fuelShown * 5, 'DYNAMIT-BONUS  ' + tally.dyn * 50,
+      box(['KÜKEN GERETTET!', '', 'GESUNDHEITS-BONUS  ' + tally.healthShown * 5, 'TANK-BONUS  ' + tally.fuelShown * 5, 'DYNAMIT-BONUS  ' + tally.dyn * 50,
         'ZEIT ' + clock(tally.time) + ' (SOLL ' + clock(tally.par) + ')  ZEIT-BONUS  ' + tally.tbShown, '', 'PUNKTE ' + score],
         ['#ffd050', '', '#50d050', '#f0a020', '#ff9060', '#60d0ff', '', '#ffffff']);
     } else if (state === 'gameover') {
