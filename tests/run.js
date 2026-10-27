@@ -1,6 +1,6 @@
 // Alle Prüfungen: node tests/run.js   (braucht Node 18+ und python3 für die Level-API)
 'use strict';
-const { spawn } = require('child_process');
+const { spawn, spawnSync } = require('child_process');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -14,8 +14,14 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   // Level-API mit Wegwerf-Datenbank starten
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'tuxo-test-'));
   const port = 18000 + Math.floor(Math.random() * 1000);
+  const dbFile = path.join(tmp, 'levels.sqlite'), levelsFile = path.join(__dirname, '..', 'public', 'levels.js');
+  const appPy = path.join(__dirname, '..', 'api', 'app.py');
+  const sql = (q) => spawnSync('python3', ['-c', 'import sqlite3,sys; c=sqlite3.connect(sys.argv[1]); c.execute(sys.argv[2]); c.commit()', dbFile, q]);
+  const postScore = (body) => fetch('/api/scores', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+    .then(async (r) => ({ status: r.status, ...(await r.json()) }));
+  const newRun = () => fetch('/api/runs', { method: 'POST' }).then((r) => r.json()).then((j) => j.run);
   const api = spawn('python3', [path.join(__dirname, '..', 'api', 'app.py'), 'serve'],
-    { env: { ...process.env, TUXO_DB: path.join(tmp, 'levels.sqlite'), TUXO_PORT: String(port) }, stdio: 'ignore' });
+    { env: { ...process.env, TUXO_DB: dbFile, TUXO_PORT: String(port), TUXO_LEVELS: levelsFile }, stdio: 'ignore' });
   await sleep(800);
   const T = load(`http://127.0.0.1:${port}`);
   const step = (n = 1) => { for (let i = 0; i < n; i++) { T.update(1 / 60); if (i % 4 === 0) T.draw(); } };
@@ -170,9 +176,12 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     console.log('Bestenliste');
     await wait(() => T.board.status !== 'loading');
     ok(T.board.status === 'ok' && T.board.list.length === 0, 'Bestenliste beim Start geladen (leer)');
-    T.startGame(); run(0.1); T.score = 4321; T.finishGame();
+    T.startGame(); run(0.1);
+    await wait(() => T.run.token);
+    ok(/^[\w-]{22}$/.test(T.run.token || '') && !T.run.practice, 'Spielstart holt eine Spielrunde vom Server');
+    T.score = 432; T.finishGame();
     await wait(() => T.board.status !== 'loading');
-    ok(T.qualifies(4321) && !T.qualifies(0), 'genug Punkte für die Liste, 0 Punkte nicht');
+    ok(T.qualifies(432) && !T.qualifies(0), 'genug Punkte für die Liste, 0 Punkte nicht');
     run(1.6); tap('Enter'); step();
     ok(T.state === 'nameentry', 'Game Over -> Namenseingabe');
     for (const c of 'TESTER') tap('Key' + c);
@@ -182,7 +191,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     tap('ArrowDown'); step();
     tap('Enter'); step();
     await wait(() => T.state !== 'busy');
-    ok(T.state === 'scores' && T.board.mine === 0 && T.board.list[0] && T.board.list[0].name === 'TESTER' && T.board.list[0].score === 4321,
+    ok(T.state === 'scores' && T.board.mine === 0 && T.board.list[0] && T.board.list[0].name === 'TESTER' && T.board.list[0].score === 432,
       `Eintrag gespeichert und markiert (${JSON.stringify(T.board.list[0])})`);
     run(1.1); tap('Enter'); step();
     ok(T.state === 'title', 'Bestenliste -> Titelmenü');
@@ -193,6 +202,39 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     clickAt(...mid(T.menuRects()[3])); release();
     ok(T.state === 'scores', 'Menüpunkt BESTENLISTE');
     T.setState('title'); step();
+
+    console.log('Bestenliste: Schutz gegen gefälschte Einträge');
+    const pyLevels = spawnSync('python3', [appPy, 'levels', '--json'], { env: { ...process.env, TUXO_DB: dbFile, TUXO_LEVELS: levelsFile } });
+    const jsRows = window.TUXO_LEVELS.map((L) => { const r = []; for (let i = 0; i < 16; i++) r.push(L.segments.map((s) => s[i]).join('').replace(/[1-9]/g, '.')); return r; });
+    ok(String(pyLevels.stdout).trim().split('\n').pop() === JSON.stringify(jsRows), 'API liest dieselben Level wie das Spiel');
+    let res = await postScore({ name: 'FAKE', score: 99999, levels: 10 });
+    ok(res.status === 400 && /SPIELRUNDE/.test(res.error), `ohne Spielrunde abgelehnt (${res.error})`);
+    let tok = await newRun();
+    res = await postScore({ name: 'FAKE', score: 99999, levels: 10, run: tok });
+    ok(res.status === 400 && res.error === 'UNGÜLTIGE PUNKTZAHL', 'zu viele Punkte für 10 Level abgelehnt');
+    res = await postScore({ name: 'FAKE', score: 100, levels: 0, run: tok });
+    ok(res.status === 400 && /SPIELRUNDE/.test(res.error), 'Spielrunde ist danach verbraucht');
+    tok = await newRun();
+    res = await postScore({ name: 'FAKE', score: 1000, levels: 2, run: tok });
+    ok(res.status === 400 && res.error === 'UNGÜLTIGE PUNKTZAHL', '2 Level in wenigen Sekunden: abgelehnt');
+    tok = await newRun();
+    sql(`UPDATE runs SET created = created - 50 WHERE token = '${tok}'`);
+    res = await postScore({ name: 'ECHT', score: 8000, levels: 2, run: tok });
+    ok(res.status === 201, `2 Level in 50 s mit 8000 Punkten: angenommen (${res.status} ${res.error || ''})`);
+    tok = await newRun();
+    sql(`UPDATE runs SET created = created - 50 WHERE token = '${tok}'`);
+    res = await postScore({ name: 'FAKE', score: 9000, levels: 2, run: tok });
+    ok(res.status === 400, 'mehr Punkte, als 2 Level hergeben: abgelehnt');
+    tok = await newRun();
+    sql(`UPDATE runs SET created = created - 13 * 3600 WHERE token = '${tok}'`);
+    res = await postScore({ name: 'FAKE', score: 100, levels: 0, run: tok });
+    ok(res.status === 400 && /SPIELRUNDE/.test(res.error), 'abgelaufene Spielrunde abgelehnt');
+    location.hash = '#level=3'; T.fromHash(); run(0.1);
+    ok(T.levelIdx === 2 && T.run.practice, 'Start per #level=3 ist eine Übungsrunde');
+    T.score = 99999; T.finishGame(); await wait(() => T.board.status !== 'loading');
+    T.afterGameOver();
+    ok(T.state === 'scores', 'Übungsrunde: keine Namenseingabe');
+    location.hash = ''; T.setState('title'); step();
 
     console.log('Editor, Teilen, Laden');
     T.setState('title'); step();

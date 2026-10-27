@@ -16,6 +16,7 @@ services:
       PYTHONDONTWRITEBYTECODE: "1"
     volumes:
       - ./app.py:/app/app.py:ro
+      - ../public:/app/public:ro   # levels.js: Punktegrenzen der Bestenliste
       - ./data:/data
     mem_limit: 128m
     cpus: 0.5

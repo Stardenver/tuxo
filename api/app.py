@@ -9,6 +9,11 @@ Nur Standardbibliothek. Läuft hinter einem Reverse Proxy (/api/*), ohne eigenen
     python app.py delete CODE    Level löschen
     python app.py scores         Bestenliste mit IDs anzeigen (Moderation)
     python app.py delscore ID    Eintrag aus der Bestenliste löschen
+    python app.py levels         Kampagnen-Level mit Punktegrenze und Mindestzeit (--json: Zeilen)
+
+Bestenliste: Jede Kampagne holt sich beim Start eine Spielrunde (POST /api/runs). Ein Eintrag braucht eine
+unverbrauchte Runde, die alt genug für die gemeldeten Level ist, und darf nicht mehr Punkte haben, als die
+Level hergeben (berechnet aus public/levels.js). Fälschen bleibt möglich, aber nur noch mit plausiblen Werten.
 """
 import hashlib
 import ipaddress
@@ -39,7 +44,20 @@ LIMIT_GET_IP = ((60, 60),)
 # Bestenliste: Namen nur aus der Pixelschrift des Spiels, kurz gehalten (öffentlich sichtbar)
 NAME_RE = re.compile(r'[A-Z0-9ÄÖÜ.!\- ]{1,10}')
 TOP_N, KEEP_SCORES = 10, 100
-MAX_SCORE, MAX_PER_LEVEL = 10_000_000, 20_000
+MAX_SCORE = 10_000_000
+LEVELS_PATH = os.environ.get('TUXO_LEVELS', '/app/public/levels.js')
+# Punkte wie in game.js: Monster (pts), Edelstein, gesprengte Wand bzw. Tür (je zusammenhängender Block)
+ENEMY_PTS = {'b': 50, 's': 75, 'w': 50, 'T': 150, 'R': 150, 'A': 200}
+GEM_PTS, WALL_PTS = 250, {'X': 75, 'D': 100}
+# Abrechnung nach dem Küken: Energie (max. 100 × 10), Dynamit (max. 9 × 50), Zeitbonus (Sollzeit × 20)
+ENERGY_PTS, DYN_PTS, PAR_PER_COL, TIME_PTS = 1000, 9 * 50, 0.8, 20
+# Mindestzeit: schnellster Flug 92 px/s vom Start zum Küken, dazu Einblendung (0,5 s) und Abrechnung (3,4 s)
+TS, MAX_SPEED, LEVEL_OVERHEAD, VICTORY_MIN = 16, 92, 3.9, 2.0
+TIME_SLACK = 0.9  # die Runde wird erst kurz nach dem Spielstart angelegt
+RUN_MAX_AGE, MAX_RUNS = 12 * 3600, 50_000
+RUN_RE = re.compile(r'[A-Za-z0-9_-]{22}')
+LIMIT_RUN_IP = ((3600, 60), (86400, 300))
+LIMIT_RUN_ALL = ((86400, 20_000),)
 LIMIT_SCORE_IP = ((3600, 10), (86400, 30))
 LIMIT_SCORE_ALL = ((86400, 2000),)
 
@@ -145,6 +163,77 @@ def validate(rows):
     return 'KÜKEN IST NICHT ERREICHBAR'
 
 
+def level_info(rows):
+    """Höchstpunktzahl (im Level und mit Abrechnung) und Mindestzeit eines Levels."""
+    w = len(rows[0])
+    pts = sum(ENEMY_PTS.get(ch, 0) + (GEM_PTS if ch == '*' else 0) for r in rows for ch in r)
+    seen = set()
+    for y in range(ROWS):
+        for x in range(w):
+            ch = rows[y][x]
+            if ch not in WALL_PTS or (x, y) in seen:
+                continue
+            pts += WALL_PTS[ch]  # ein Block zerfällt als Ganzes und bringt nur einmal Punkte
+            seen.add((x, y))
+            stack = [(x, y)]
+            while stack:
+                cx, cy = stack.pop()
+                for nx, ny in ((cx + 1, cy), (cx - 1, cy), (cx, cy + 1), (cx, cy - 1)):
+                    if 0 <= nx < w and 0 <= ny < ROWS and (nx, ny) not in seen and rows[ny][nx] == ch:
+                        seen.add((nx, ny))
+                        stack.append((nx, ny))
+    col = {ch: x for r in rows for x, ch in enumerate(r) if ch in 'PC'}
+    full = pts + ENERGY_PTS + DYN_PTS + round(w * PAR_PER_COL) * TIME_PTS
+    return {'width': w, 'partial': pts, 'full': full,
+            'min_time': abs(col['C'] - col['P']) * TS / MAX_SPEED + LEVEL_OVERHEAD}
+
+
+def parse_levels(src):
+    """Liest die Abschnitte jedes Levels aus levels.js und setzt sie zu 16 Zeilen zusammen."""
+    levels = []
+    for m in re.finditer(r'segments:\s*\[', src):
+        depth, i = 1, m.end()
+        while depth:  # passende schließende Klammer; die Zeichenketten enthalten nur Kacheln und Ziffern
+            depth += {'[': 1, ']': -1}.get(src[i], 0)
+            i += 1
+        strs = re.findall(r"'([^'\\]*)'", src[m.end():i])
+        if not strs or len(strs) % ROWS:
+            raise ValueError('levels.js: Abschnitt ohne 16 Zeilen')
+        segs = [strs[k:k + ROWS] for k in range(0, len(strs), ROWS)]
+        rows = [re.sub('[1-9]', '.', ''.join(s[r] for s in segs)) for r in range(ROWS)]
+        err = validate(rows)
+        if err:
+            raise ValueError(f'levels.js: Level {len(levels) + 1}: {err}')
+        levels.append(rows)
+    if not levels:
+        raise ValueError('levels.js: keine Level gefunden')
+    return levels
+
+
+_campaign = {'mtime': None, 'levels': [], 'info': []}
+_campaign_lock = threading.Lock()
+
+
+def campaign():
+    """Grenzen der Kampagnen-Level; levels.js wird neu gelesen, sobald sich die Datei ändert."""
+    with _campaign_lock:
+        mtime = os.stat(LEVELS_PATH).st_mtime_ns
+        if mtime != _campaign['mtime']:
+            with open(LEVELS_PATH, encoding='utf-8') as f:
+                levels = parse_levels(f.read())
+            _campaign.update(mtime=mtime, levels=levels, info=[level_info(r) for r in levels])
+        return _campaign['info']
+
+
+def score_limits(levels):
+    """(Höchstpunktzahl, Mindestzeit in s) nach `levels` geschafften Leveln; die Kampagne wiederholt sich."""
+    info = campaign()
+    rounds, rest = divmod(levels, len(info))
+    best = rounds * sum(i['full'] for i in info) + sum(i['full'] for i in info[:rest]) + info[rest]['partial']
+    need = rounds * (sum(i['min_time'] for i in info) + VICTORY_MIN) + sum(i['min_time'] for i in info[:rest])
+    return best, need
+
+
 def db():
     con = sqlite3.connect(DB_PATH, timeout=5)
     con.execute('PRAGMA busy_timeout = 5000')
@@ -166,7 +255,43 @@ def init_db():
             score INTEGER NOT NULL,
             levels INTEGER NOT NULL,
             created INTEGER NOT NULL)''')
+        con.execute('''CREATE TABLE IF NOT EXISTS runs (
+            token TEXT PRIMARY KEY,
+            created REAL NOT NULL)''')
     con.close()
+
+
+def new_run():
+    """Legt eine Spielrunde an und gibt ihr Token zurück (None, wenn zu viele offen sind)."""
+    con = db()
+    try:
+        with con:
+            now = time.time()
+            con.execute('DELETE FROM runs WHERE created < ?', (now - RUN_MAX_AGE,))
+            if con.execute('SELECT COUNT(*) FROM runs').fetchone()[0] >= MAX_RUNS:
+                return None
+            token = secrets.token_urlsafe(16)
+            con.execute('INSERT INTO runs (token, created) VALUES (?, ?)', (token, now))
+        return token
+    finally:
+        con.close()
+
+
+def take_run(token):
+    """Verbraucht eine Spielrunde und gibt ihr Alter in Sekunden zurück (None, wenn unbekannt oder abgelaufen)."""
+    if not isinstance(token, str) or not RUN_RE.fullmatch(token):
+        return None
+    con = db()
+    try:
+        with con:
+            row = con.execute('SELECT created FROM runs WHERE token = ?', (token,)).fetchone()
+            # nur wer die Zeile wirklich löscht, darf sie verwenden (gleichzeitige Einträge)
+            if not row or not con.execute('DELETE FROM runs WHERE token = ?', (token,)).rowcount:
+                return None
+        age = time.time() - row[0]
+        return age if age <= RUN_MAX_AGE else None
+    finally:
+        con.close()
 
 
 def store_level(rows):
@@ -222,8 +347,16 @@ def validate_score(payload):
         return 'UNGÜLTIGER NAME'
     if type(score) is not int or type(levels) is not int or not 0 <= levels <= 10_000:
         return 'UNGÜLTIGE PUNKTZAHL'
-    # Grobe Plausibilität: niemand holt in einem Level mehr als MAX_PER_LEVEL Punkte
-    if not 0 < score <= min(MAX_SCORE, (levels + 1) * MAX_PER_LEVEL):
+    # Die Runde wird auch bei abgelehnten Punkten verbraucht – ein ehrliches Spiel scheitert daran nie
+    age = take_run(payload.get('run'))
+    if age is None:
+        return 'SPIELRUNDE UNGÜLTIG - BITTE NEU SPIELEN'
+    try:
+        best, need = score_limits(levels)
+    except (OSError, ValueError) as e:
+        print(f'Bestenliste: {e}', flush=True)
+        return 'BESTENLISTE GERADE NICHT VERFÜGBAR'
+    if not 0 < score <= min(MAX_SCORE, best) or age < need * TIME_SLACK:
         return 'UNGÜLTIGE PUNKTZAHL'
     return name, score, levels
 
@@ -302,6 +435,13 @@ class Handler(BaseHTTPRequestHandler):
         path = self.path.split('?', 1)[0]
         if path == '/api/scores':
             return self.post_score()
+        if path == '/api/runs':
+            if not limiter.allow(('run', client_key(self)), LIMIT_RUN_IP):
+                return self.too_many('ZU VIELE SPIELE - BITTE SPÄTER NOCHMAL')
+            token = limiter.allow(('run', '*'), LIMIT_RUN_ALL) and new_run()
+            if not token:
+                return self.too_many('HEUTE WERDEN KEINE SPIELE MEHR GEZÄHLT')
+            return self.send_json(201, {'run': token})
         if path != '/api/levels':
             return self.send_json(404, {'error': 'NICHT GEFUNDEN'})
         if self.headers.get_content_type() != 'application/json':
@@ -361,6 +501,10 @@ def main(argv):
         port = int(os.environ.get('TUXO_PORT', '8000'))
         server = ThreadingHTTPServer(('0.0.0.0', port), Handler)
         server.daemon_threads = True
+        try:
+            print(f'{len(campaign())} Kampagnen-Level aus {LEVELS_PATH}', flush=True)
+        except (OSError, ValueError) as e:  # Level teilen geht trotzdem, nur Einträge werden abgelehnt
+            print(f'WARNUNG: {e}', flush=True)
         print(f'tuxo-api läuft auf :{port}', flush=True)
         server.serve_forever()
     elif cmd == 'stats':
@@ -384,6 +528,12 @@ def main(argv):
             print(f'{i:3}. {name:<10} {score:>8}  Level {levels:<3} ID {sid}  {time.strftime("%d.%m.%Y %H:%M", time.gmtime(created))} UTC')
         if not rows:
             print('Bestenliste ist leer')
+    elif cmd == 'levels':
+        for i, info in enumerate(campaign(), 1):
+            print(f'Level {i}: {info["width"]} Spalten, bis {info["partial"]} Punkte im Level, '
+                  f'{info["full"]} mit Abrechnung, mindestens {info["min_time"]:.1f} s')
+        if '--json' in argv:
+            print(json.dumps(_campaign['levels'], separators=(',', ':')))
     elif cmd == 'delscore' and len(argv) == 3 and argv[2].isdigit():
         con = db()
         with con:

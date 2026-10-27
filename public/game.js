@@ -659,6 +659,7 @@
     loadLevel(0);
     setState('intro');
     sfx.start();
+    startRun();
   }
   function setState(s) {
     state = s; stateT = 0; paused = false;
@@ -1544,6 +1545,12 @@
   const board = { status: 'idle', list: [], err: '', mine: -1, attract: false, fromGame: false };
   let nm = { s: '', i: 0, err: '' };
   const pad6 = (n) => String(n).padStart(6, '0');
+  // Spielrunde vom Server: ohne sie nimmt die API keinen Eintrag an (prüft Alter und Punkte gegen die Level)
+  let run = { token: null, practice: true };
+  function startRun() {
+    const r = run = { token: null, practice: false };
+    request('/api/runs', { method: 'POST' }).then((j) => { r.token = j.run || null; }).catch(() => {});
+  }
   function fetchScores() {
     board.status = 'loading';
     request(SCORES_API)
@@ -1596,7 +1603,7 @@
     store.set('tuxo-name', name);
     busyText = 'TRAGE DICH EIN ...';
     setState('busy');
-    request(SCORES_API, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, score, levels: levelIdx }) })
+    request(SCORES_API, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, score, levels: levelIdx, run: run.token }) })
       .then((j) => {
         board.list = Array.isArray(j.scores) ? j.scores : []; board.status = 'ok';
         board.attract = false; board.fromGame = true; board.mine = j.rank ? j.rank - 1 : -1;
@@ -1883,7 +1890,7 @@
   }
   function afterGameOver() {
     if (mode !== 'campaign') setState('title');
-    else if (board.status === 'ok' && qualifies(score)) enterName();
+    else if (board.status === 'ok' && qualifies(score) && !run.practice) enterName();
     else showScores(false);
   }
 
@@ -2200,7 +2207,10 @@
     let h = '';
     try { h = decodeURIComponent(location.hash.slice(1)); } catch (e) { return; }
     const m = /^level=(\d+)$/.exec(h);
-    if (m) { startGame(); levelIdx = clamp(parseInt(m[1], 10) - 1, 0, LEVELS.length - 1); loadLevel(levelIdx); return; }
+    if (m) { // Übungsrunde: zählt nicht für die Bestenliste
+      startGame(); run.practice = true;
+      levelIdx = clamp(parseInt(m[1], 10) - 1, 0, LEVELS.length - 1); loadLevel(levelIdx); return;
+    }
     if (/^[2-9A-HJKMNP-Z]{6}$/i.test(h)) loadByCode(h.toUpperCase());
   }
   setSkin(store.get('tuxo-schnitzel') === '1');

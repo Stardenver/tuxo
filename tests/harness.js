@@ -40,7 +40,8 @@ function load(apiBase) {
     get cam() { return cam; }, get shots() { return shots; }, get dyn() { return dyn; }, get chick() { return chick; },
     get score() { return score; }, get lives() { return lives; }, get curCode() { return curCode; },
     SPR, SKINS, get schnitzel() { return schnitzel; }, get schFx() { return schFx; },
-    board, qualifies, finishGame, set score(v) { score = v; }, get nm() { return nm; },
+    board, qualifies, finishGame, afterGameOver, set score(v) { score = v; }, get nm() { return nm; }, get run() { return run; },
+    fromHash, get levelIdx() { return levelIdx; },
     get lvlT() { return lvlT; }, set lvlT(v) { lvlT = v; }, get lastTimeBonus() { return lastTimeBonus; }, parTime,
     startCustom, get enemies() { return enemies; }, get pickups() { return pickups; },
     get laserReady() { return laserReady; }, get laserUsed() { return laserUsed; }, get beam() { return beam; } };
