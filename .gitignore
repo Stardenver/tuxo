@@ -2,6 +2,8 @@
 CLAUDE.md
 # Geheimnisse der Easter Eggs (Cheat-Code, Hexen-Namen) – nur lokal für die Tests
 tests/geheim.json
+# Rohdateien der KI-Level (eingebaut wird über tools/level-check.js in public/levels.js)
+KI-Level/
 # Laufzeitdaten
 api/data/
 *.sqlite

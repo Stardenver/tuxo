@@ -51,6 +51,13 @@ function checkLevel(L, checkRows) {
       const prev = segs[i - 1][y] || '', a = prev[prev.length - 1] === '#', b = s[y] && s[y][0] === '#';
       if (a !== b) err(`Übergang Abschnitt ${i}/${i + 1}, Zeile ${y + 1}: Fels muss auf beiden Seiten der Naht gleich sein`);
     }
+    // Abschnitte bilden eine Höhle: an jeder Naht braucht es einen 2 Kacheln hohen Durchgang
+    if (i && s.length === ROWS) {
+      const prev = segs[i - 1], openAt = (c) => c !== undefined && c !== '#' && c !== 'L';
+      const gap = (y) => openAt(prev[y][prev[y].length - 1]) && openAt(s[y][0]);
+      if (![...Array(ROWS - 1).keys()].some((y) => gap(y) && gap(y + 1)))
+        err(`Naht Abschnitt ${i}/${i + 1} ist komplett zu (kein 2 Kacheln hoher Durchgang) – die Abschnitte bilden eine durchgehende Höhle, nicht einzelne Räume`);
+    }
   });
   if (errors.length) return { errors, warnings };
   const raw = Array.from({ length: ROWS }, (_, y) => segs.map((s) => s[y]).join(''));

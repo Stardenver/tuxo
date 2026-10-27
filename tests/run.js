@@ -312,8 +312,10 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     ok(res.status === 201, `2 Level in 50 s mit 8000 Punkten: angenommen (${res.status} ${res.error || ''})`);
     tok = await newRun();
     sql(`UPDATE runs SET created = created - 50 WHERE token = '${tok}'`);
-    res = await postScore({ name: 'FAKE', score: 9000, levels: 2, run: tok });
-    ok(res.status === 400, 'mehr Punkte, als 2 Level hergeben: abgelehnt');
+    const limit2 = JSON.parse(String(spawnSync('python3', ['-c', 'import sys; sys.path.insert(0, sys.argv[1]); import app; print(app.score_limits(2)[0])',
+      path.join(__dirname, '..', 'api')], { env: { ...process.env, TUXO_DB: dbFile, TUXO_LEVELS: levelsFile } }).stdout));
+    res = await postScore({ name: 'FAKE', score: limit2 + 1, levels: 2, run: tok });
+    ok(res.status === 400, `mehr Punkte, als 2 Level hergeben (${limit2 + 1}): abgelehnt`);
     tok = await newRun();
     sql(`UPDATE runs SET created = created - 13 * 3600 WHERE token = '${tok}'`);
     res = await postScore({ name: 'FAKE', score: 100, levels: 0, run: tok });
