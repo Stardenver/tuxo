@@ -4,6 +4,10 @@ CLAUDE.md
 tests/geheim.json
 # Rohdateien der KI-Level (eingebaut wird über tools/level-check.js in public/levels.js)
 KI-Level/
+# Betreiberangaben, Impressum und Datenschutz (persönliche Daten, Sperrliste) – nur auf dem Server
+public/site.js
+public/impressum.html
+public/datenschutz.html
 # Laufzeitdaten
 api/data/
 *.sqlite

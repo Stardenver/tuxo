@@ -461,6 +461,8 @@
   cv.addEventListener('pointermove', (e) => { toGame(e); mouse.moved = true; inputSeen = true; });
   cv.addEventListener('pointerup', () => { mouse.down = false; });
   cv.addEventListener('pointercancel', () => { mouse.down = false; });
+  // Links im Titel (Credit, Impressum, Datenschutz) über das echte click-Ereignis öffnen, sonst blockt der Browser das Fenster
+  cv.addEventListener('click', (e) => { if (state === 'title' && !schFx) { toGame(e); openSiteLink(mouse.x, mouse.y); } });
   cv.addEventListener('contextmenu', (e) => e.preventDefault());
   cv.addEventListener('wheel', (e) => {
     if (state !== 'editor') return;
@@ -2047,6 +2049,24 @@
     else showScores(false, true);
   }
 
+  // ---------- Credit und Rechtliches (Titelmenü unten) ----------
+  // Texte und Adressen stehen in site.js (liegt nur auf dem Server, nicht im Repo); ohne die Datei erscheint nichts.
+  function siteLinks() {
+    const S = window.TUXO_SITE, y = H - 10, links = [];
+    if (!S) return links;
+    if (S.credit && S.url) links.push({ label: S.credit, url: S.url, x: 6 });
+    if (S.legal) {
+      const a = 'IMPRESSUM', b = 'DATENSCHUTZ', gap = 16, x0 = Math.round(W / 2 - (textWidth(a) + gap + textWidth(b)) / 2);
+      links.push({ label: a, url: 'impressum.html', x: x0 }, { label: b, url: 'datenschutz.html', x: x0 + textWidth(a) + gap });
+    }
+    return links.map((l) => ({ ...l, rect: { x: l.x - 3, y: y - 3, w: textWidth(l.label) + 6, h: 11 } }));
+  }
+  function openSiteLink(x, y) {
+    const l = siteLinks().find((k) => inRect({ x, y }, k.rect));
+    if (l) window.open(l.url, '_blank', 'noopener');
+    return !!l;
+  }
+
   // ---------- Hall of Shame (Easter Egg) ----------
   // Klein oben rechts im Titel. Die Fotos liegen als <img> (#shame) über dem Canvas, damit sie scharf bleiben;
   // das Canvas zeichnet Rahmen und Namen. Geladen wird erst beim ersten Öffnen.
@@ -2577,6 +2597,7 @@
     drawText((best ? 'REKORD ' + pad6(best.score) + ' ' + best.name + '    ' : '') + 'DEIN BESTES ' + pad6(hiscore), W / 2, 232, '#50d050', 1, 'center');
     drawText('RETTE DIE PINGUIN-KÜKEN AUS DEN TIEFEN DES BERGES', W / 2, 246, '#8878a8', 1, 'center');
     drawText(Sound.muted ? 'TON AUS' : 'TON AN', W - 6, H - 10, '#665588', 1, 'right', null);
+    for (const l of siteLinks()) drawText(l.label, l.x, H - 10, inRect(mouse, l.rect) ? '#ffe060' : '#8878a8', 1, 'left', null);
     drawText('HALL OF SHAME', W - 6, SHAME_BTN.y + 3, inRect(mouse, SHAME_BTN) ? '#ff7070' : '#a04848', 1, 'right');
     if (schFx && state === 'title') drawSchnitzelFx();
   }

@@ -480,6 +480,23 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
       T.setState('title'); step();
     }
 
+    console.log('Credit, Impressum, Datenschutz');
+    {
+      ok(!T.siteLinks().length, 'ohne site.js keine Links (öffentliches Repo enthält keine Betreiberdaten)');
+      const opened = []; window.open = (u, t, f) => opened.push([u, t, f]);
+      window.TUXO_SITE = { credit: 'CREATED BY TEST', url: 'https://example.org', legal: true };
+      const links = T.siteLinks();
+      ok(links.length === 3 && links[0].x < 20 && links.every((l) => l.rect.y + l.rect.h <= 270), 'Credit unten links, Impressum und Datenschutz unten');
+      for (const l of links) T.openSiteLink(l.rect.x + l.rect.w / 2, l.rect.y + l.rect.h / 2);
+      ok(opened.map((o) => o[0]).join() === 'https://example.org,impressum.html,datenschutz.html' && opened.every((o) => o[1] === '_blank' && /noopener/.test(o[2])),
+        'Klick öffnet jeweils ein neues Fenster');
+      ok(!T.openSiteLink(240, 100), 'Klick daneben öffnet nichts');
+      const legal = ['site.js', 'impressum.html', 'datenschutz.html'];
+      const ign = spawnSync('git', ['check-ignore', ...legal.map((f) => 'public/' + f)], { cwd: path.join(__dirname, '..') });
+      ok(String(ign.stdout).trim().split('\n').length === 3, 'site.js, Impressum und Datenschutz sind von Git ausgeschlossen');
+      delete window.TUXO_SITE;
+    }
+
     console.log('Hall of Shame');
     T.setState('title'); step();
     clickAt(480 - 30, 7); release();
