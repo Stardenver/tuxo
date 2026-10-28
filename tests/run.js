@@ -507,6 +507,39 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     clickAt(480 - 30, 7); release(); run(0.6); clickAt(240, 135); release();
     ok(T.state === 'title', 'Mausklick -> zurück ins Titelmenü');
 
+    console.log('Gamepad');
+    {
+      const pad = { connected: true, axes: [0, 0, 0, 0], buttons: Array.from({ length: 17 }, () => ({ pressed: false, value: 0 })) };
+      Object.defineProperty(global, 'navigator', { value: { getGamepads: () => [null, pad] }, configurable: true });
+      const btn = (i, on) => { pad.buttons[i] = { pressed: on, value: on ? 1 : 0 }; };
+      const pp = (i, sec = 0.05) => { btn(i, true); run(sec); btn(i, false); step(); };
+      T.setState('title'); step();
+      let seen = 0; // Steuerkreuz runter wählt den nächsten Menüpunkt, A bestätigt
+      for (let i = 0; i < 4 && T.state !== 'intro'; i++) { if (i) { T.setState('title'); step(); pp(13); } pp(0); seen++; }
+      run(2.5);
+      ok(T.state === 'play' && seen <= 4, 'Gamepad: Menü per Steuerkreuz, A startet das Spiel');
+      T.run.practice = true; run(1);
+      const y0 = T.p.y; btn(0, true); run(0.8); const yUp = T.p.y; btn(0, false); run(2);
+      ok(y0 - yUp > 20, `Gamepad: A = Jetpack (${(y0 - yUp).toFixed(0)} px)`);
+      const x0 = T.p.x; pad.axes[0] = 0.9; run(0.5); pad.axes[0] = 0.2; run(0.3);
+      const x1 = T.p.x;
+      ok(x1 > x0 + 10, `Gamepad: linker Stick läuft (${(x1 - x0).toFixed(0)} px)`);
+      run(0.5); ok(T.p.x - x1 < 4, 'Gamepad: Stick in der Totzone bleibt stehen');
+      const d0 = T.dyns.length; pp(2);
+      ok(T.dyns.length === d0 + 1, 'Gamepad: X legt Dynamit');
+      run(3); T.loadLevel(T.levelIdx); T.setState('play'); step(); // Tux stand neben dem Dynamit
+      pp(9); ok(T.paused, 'Gamepad: Start pausiert');
+      pp(1); ok(!T.paused && T.state === 'play', 'Gamepad: B setzt aus der Pause fort');
+      const l0 = T.lives; pp(9); pp(15); pp(0);
+      ok(!T.paused && T.state === 'dying', 'Gamepad: Pausemenü per Steuerkreuz + A (NEU VERSUCHEN)');
+      run(6, () => T.state === 'play'); if (T.state !== 'play') { pp(0); run(3, () => T.state === 'play'); }
+      pp(9); pp(15); pp(15); pp(15); pp(14); pp(0); // rechts bleibt bei 2 stehen, links -> 1
+      ok(T.state === 'dying', 'Gamepad: Auswahl im Pausemenü bleibt in den Grenzen');
+      Object.defineProperty(global, 'navigator', { value: {}, configurable: true });
+      T.setState('title'); step();
+      ok(T.state === 'title', 'ohne Gamepad läuft alles wie vorher');
+    }
+
     console.log('Editor, Teilen, Laden');
     T.setState('title'); step();
     clickAt(...mid(T.menuRects()[1])); release();

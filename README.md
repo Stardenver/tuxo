@@ -19,6 +19,11 @@ kleine API dazu.
 
 Auf Touch-Geräten erscheinen Bildschirmknöpfe.
 
+**Gamepad** (Xbox, PlayStation, Steam-Controller über Steam Input und andere Controller mit Standard-Belegung):
+Steuerkreuz oder linker Stick zum Laufen, Ducken und durch die Menüs, **A** oder rechter Trigger = Jetpack
+(in Menüs: bestätigen), **X** oder **B** = Dynamit (in Menüs: B = zurück), **Start** = Pause, **Back** = Ton.
+Im Pausemenü wählt das Steuerkreuz, A bestätigt.
+
 ## Punkte und Bestenliste
 
 Punkte gibt es für Monster, Wände, Edelsteine und am Levelende für übrige Gesundheit, übrigen Treibstoff und übriges Dynamit. Gesundheit kostet nur ein tiefer Fall

@@ -407,7 +407,7 @@
     if ((state === 'codeinput' || state === 'nameentry') && e.code === 'Backspace') e.preventDefault();
     if (!keys[e.code]) hit[e.code] = true;
     keys[e.code] = true;
-    inputSeen = true;
+    inputSeen = true; padUsed = false;
     if ((e.ctrlKey || e.metaKey) && e.code === 'KeyZ') { hit.Undo = true; e.preventDefault(); }
     else if (!e.ctrlKey && !e.metaKey && !e.altKey && e.key && (e.key.length === 1 || e.key === 'Backspace')) typed.push(e.key);
     if (state === 'title' && e.key && e.key.length === 1) cheatKey(e.key.toUpperCase());
@@ -429,6 +429,60 @@
     up: () => keys.Space || keys.ArrowUp || keys.KeyW, // Jetpack (bei leerem Tank: Sprung)
     down: () => keys.ArrowDown || keys.KeyS,
   };
+
+  // Gamepad (Xbox, PlayStation, Steam-Controller über Steam Input usw.; Standard-Belegung der Gamepad API).
+  // Wird jeden Schritt abgefragt und auf dieselben Tastencodes abgebildet wie die Tastatur: Steuerkreuz/linker Stick =
+  // Pfeile, A = Jetpack bzw. Bestätigen, RT = Jetpack, B/X = Dynamit (B außerhalb des Spiels: zurück), Y = KeyB,
+  // Start = Pause, Back = Ton. Welche Codes eine Taste auslöst, steht beim Drücken fest, damit ein Zustandswechsel
+  // während des Haltens nichts Neues auslöst. Pad*-Codes gibt es nur fürs Pausemenü (sonst nur Maus).
+  const padHeld = Object.create(null); // Eingabe am Pad -> ausgelöste Tastencodes
+  let padUsed = false; // letzte Eingabe kam vom Gamepad (Pausemenü zeigt dann die Auswahl)
+  function padCodes(name) {
+    const inPlay = state === 'play' && !paused, typing = state === 'nameentry' || state === 'codeinput';
+    switch (name) {
+      case 'left': return ['ArrowLeft', 'PadLeft'];
+      case 'right': return ['ArrowRight', 'PadRight'];
+      case 'up': return ['ArrowUp'];
+      case 'down': return ['ArrowDown'];
+      case 'a': return [paused ? 'PadA' : typing ? 'Enter' : 'Space'];
+      case 'rt': return inPlay ? ['Space'] : [];
+      case 'b': return [inPlay ? 'KeyE' : 'Escape'];
+      case 'x': return inPlay ? ['KeyE'] : [];
+      case 'y': return inPlay ? ['KeyB'] : [];
+      case 'start': return [state === 'play' ? 'KeyP' : typing ? 'Enter' : 'Space'];
+      case 'back': return ['KeyM'];
+    }
+    return [];
+  }
+  function pollPads() {
+    for (const k in hit) if (k.startsWith('Pad')) hit[k] = false; // nur im selben Schritt gültig
+    const pads = (typeof navigator !== 'undefined' && navigator.getGamepads && navigator.getGamepads()) || [];
+    const now = Object.create(null);
+    for (const g of pads) {
+      if (!g || !g.connected) continue;
+      const b = (i) => { const x = g.buttons[i]; return !!x && (x.pressed || x.value > 0.5); };
+      const ax = g.axes[0] || 0, ay = g.axes[1] || 0;
+      if (b(14) || ax < -0.5) now.left = true;
+      if (b(15) || ax > 0.5) now.right = true;
+      if (b(12) || ay < -0.6) now.up = true;
+      if (b(13) || ay > 0.6) now.down = true;
+      if (b(0)) now.a = true;
+      if (b(7)) now.rt = true;
+      if (b(1)) now.b = true;
+      if (b(2)) now.x = true;
+      if (b(3)) now.y = true;
+      if (b(9)) now.start = true;
+      if (b(8)) now.back = true;
+    }
+    for (const n in padHeld) if (!now[n]) { for (const c of padHeld[n]) keys[c] = false; delete padHeld[n]; }
+    for (const n in now) {
+      if (padHeld[n]) continue;
+      const cs = (padHeld[n] = padCodes(n));
+      for (const c of cs) { if (!keys[c]) hit[c] = true; keys[c] = true; }
+      inputSeen = true; padUsed = true;
+      Sound.init();
+    }
+  }
 
   // Touch-Steuerung (nur auf Geräten mit Touchscreen sichtbar)
   const touchUI = document.getElementById('touch');
@@ -458,7 +512,7 @@
     if (e.button === 2) mouse.rclicked = true; else mouse.clicked = true;
     try { cv.setPointerCapture(e.pointerId); } catch (err) { /* egal */ }
   });
-  cv.addEventListener('pointermove', (e) => { toGame(e); mouse.moved = true; inputSeen = true; });
+  cv.addEventListener('pointermove', (e) => { toGame(e); mouse.moved = true; inputSeen = true; padUsed = false; });
   cv.addEventListener('pointerup', () => { mouse.down = false; });
   cv.addEventListener('pointercancel', () => { mouse.down = false; });
   // Links im Titel (Credit, Impressum, Datenschutz) über das echte click-Ereignis öffnen, sonst blockt der Browser das Fenster
@@ -1409,7 +1463,7 @@
     ctx.fillRect(x, y, w, 1); ctx.fillRect(x, y + h - 1, w, 1); ctx.fillRect(x, y, 1, h); ctx.fillRect(x + w - 1, y, 1, h);
   }
   function drawButton(b) {
-    const hov = inRect(mouse, b);
+    const hov = b.sel || inRect(mouse, b);
     ctx.fillStyle = hov ? '#4a3a6a' : '#241a36';
     ctx.fillRect(b.x, b.y, b.w, b.h);
     rectLine(b.x, b.y, b.w, b.h, hov ? '#f0c040' : '#6a5a8a');
@@ -2248,13 +2302,18 @@
   }
 
   // NEU VERSUCHEN: kostet ein Leben, z. B. wenn Tux mit leerem Tank oder ohne Dynamit festsitzt
-  const pauseButtons = () => rowButtons(['WEITER', 'NEU VERSUCHEN', mode === 'test' ? 'ZUM EDITOR' : 'AUFGEBEN'], 150);
+  let pauseSel = 0; // Auswahl per Gamepad
+  const pauseButtons = () => rowButtons(['WEITER', 'NEU VERSUCHEN', mode === 'test' ? 'ZUM EDITOR' : 'AUFGEBEN'], 150)
+    .map((b, i) => Object.assign(b, { sel: padUsed && i === pauseSel }));
   function updatePause() {
     const bs = pauseButtons();
-    // P (wie gewohnt) oder Esc setzt fort, alles andere per Maus/Finger
-    if (consume('KeyP', 'Escape') || (click && inRect(mouse, bs[0]))) paused = false;
-    else if (click && inRect(mouse, bs[1])) { paused = false; die('NEUER VERSUCH'); }
-    else if (click && inRect(mouse, bs[2])) {
+    // P (wie gewohnt) oder Esc setzt fort, alles andere per Maus/Finger – oder Gamepad (Steuerkreuz + A)
+    if (consume('PadLeft')) pauseSel = Math.max(0, pauseSel - 1);
+    if (consume('PadRight')) pauseSel = Math.min(bs.length - 1, pauseSel + 1);
+    const pad = consume('PadA') ? pauseSel : -1;
+    if (consume('KeyP', 'Escape') || pad === 0 || (click && inRect(mouse, bs[0]))) paused = false;
+    else if (pad === 1 || (click && inRect(mouse, bs[1]))) { paused = false; die('NEUER VERSUCH'); }
+    else if (pad === 2 || (click && inRect(mouse, bs[2]))) {
       paused = false;
       Sound.setJet(0);
       if (mode === 'test') enterEditor();
@@ -2266,6 +2325,7 @@
   // ---------- Hauptschleife ----------
   let click = false, rclick = false;
   function update(dt) {
+    pollPads();
     time += dt;
     stateT += dt;
     click = mouse.clicked; rclick = mouse.rclicked;
@@ -2293,7 +2353,7 @@
         if (paused) { updatePause(); return; }
         lvlT += dt;
         if (mode === 'test' && consume('Escape')) { enterEditor(); break; }
-        if (consume('KeyP', 'Escape')) { paused = true; Sound.setJet(0); return; }
+        if (consume('KeyP', 'Escape')) { paused = true; pauseSel = 0; Sound.setJet(0); return; }
         if (relicClicked()) { openArk(); break; }
         updatePlayer(dt);
         if (state !== 'play') break;
