@@ -4,7 +4,7 @@ const { spawn, spawnSync } = require('child_process');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { load, key, PUBLIC } = require('./harness');
+const { load, key, handlers, PUBLIC } = require('./harness');
 
 let failed = 0;
 const ok = (c, m) => { if (!c) failed++; console.log((c ? '  ok    ' : '  FEHL  ') + m); };
@@ -538,6 +538,16 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
       Object.defineProperty(global, 'navigator', { value: {}, configurable: true });
       T.setState('title'); step();
       ok(T.state === 'title', 'ohne Gamepad läuft alles wie vorher');
+    }
+
+    console.log('Tasten nicht an den Browser weitergeben');
+    {
+      const down = (code, k, mods = {}) => { let pd = false; handlers.keydown.forEach((f) => f({ code, key: k, ...mods, preventDefault: () => { pd = true; } })); handlers.keyup.forEach((f) => f({ code, key: k, preventDefault: () => {} })); return pd; };
+      T.setState('title'); step();
+      ok(['KeyE', 'KeyW', 'KeyB', 'Slash'].every((c, i) => down(c, 'ewb/'[i])), 'Buchstaben lösen keine Browser-Suche beim Tippen aus');
+      ok(!down('KeyV', 'v', { ctrlKey: true }) && !down('KeyV', 'v', { metaKey: true }) && !down('KeyR', 'r', { metaKey: true }), 'Strg/Cmd-Kombinationen bleiben beim Browser');
+      ok(!down('F5', 'F5') && !down('Tab', 'Tab'), 'Funktionstasten und Tab bleiben beim Browser');
+      T.setState('title'); step();
     }
 
     console.log('Editor, Teilen, Laden');

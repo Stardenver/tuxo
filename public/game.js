@@ -404,6 +404,9 @@
   const GAME_KEYS = ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Space', 'Enter', 'KeyP', 'KeyM', 'Escape'];
   addEventListener('keydown', (e) => {
     if (GAME_KEYS.includes(e.code)) e.preventDefault();
+    // Buchstaben ohne Strg/Cmd/Alt nicht an den Browser weitergeben, sonst startet z. B. „beim Tippen im Seitentext
+    // suchen“ (Firefox) bei E oder WASD. Das Spiel liest e.key/e.code trotzdem; Einfügen mit Strg/Cmd+V geht weiter.
+    else if (!e.ctrlKey && !e.metaKey && !e.altKey && e.key && e.key.length === 1) e.preventDefault();
     if ((state === 'codeinput' || state === 'nameentry') && e.code === 'Backspace') e.preventDefault();
     if (!keys[e.code]) hit[e.code] = true;
     keys[e.code] = true;

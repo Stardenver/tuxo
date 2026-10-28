@@ -57,4 +57,4 @@ function load(apiBase) {
 }
 
 const key = (code, down) => (handlers[down ? 'keydown' : 'keyup'] || []).forEach((f) => f({ code, key: /^Key[A-Z]$/.test(code) ? code.slice(3).toLowerCase() : '', preventDefault: noop }));
-module.exports = { load, key, PUBLIC };
+module.exports = { load, key, handlers, PUBLIC };
