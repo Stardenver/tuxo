@@ -400,6 +400,42 @@
 
   // ---------- Eingabe ----------
   const keys = Object.create(null), hit = Object.create(null), typed = [];
+  const gpKeys = Object.create(null), gpHit = Object.create(null);
+  let gpPrevious = Object.create(null);
+
+  function pollGamepad() {
+    const pads = navigator.getGamepads ? navigator.getGamepads() : [];
+    const pad = Array.from(pads).find((p) => p && p.connected);
+
+    const next = Object.create(null);
+    if (pad) {
+      const axisX = pad.axes[0] || 0;
+      const axisY = pad.axes[1] || 0;
+
+      next.ArrowLeft = axisX < -0.45 || !!pad.buttons[14]?.pressed;
+      next.ArrowRight = axisX > 0.45 || !!pad.buttons[15]?.pressed;
+      next.ArrowUp = axisY < -0.45 || !!pad.buttons[12]?.pressed;
+      next.ArrowDown = axisY > 0.45 || !!pad.buttons[13]?.pressed;
+
+      next.Space = !!pad.buttons[0]?.pressed; // A: Jetpack/Sprung
+      next.KeyB = !!pad.buttons[1]?.pressed;  // B: Laser
+      next.KeyE = !!pad.buttons[2]?.pressed;  // X: Dynamit
+      next.KeyM = !!pad.buttons[3]?.pressed;  // Y: Ton
+      next.KeyP = !!pad.buttons[9]?.pressed;  // Start: Pause
+      next.Enter = !!pad.buttons[0]?.pressed; // A: Menüs bestätigen
+    }
+
+    for (const code of Object.keys(next)) {
+      if (next[code] && !gpPrevious[code]) gpHit[code] = true;
+    }
+
+    gpPrevious = next;
+
+    for (const code of Object.keys(gpKeys)) gpKeys[code] = false;
+    Object.assign(gpKeys, next);
+
+    if (pad) inputSeen = true;
+  }  
   let inputSeen = false; // irgendeine Eingabe seit dem letzten Schritt (Titelmenü: Leerlauf zurücksetzen)
   const GAME_KEYS = ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Space', 'Enter', 'KeyP', 'KeyM', 'Escape'];
   addEventListener('keydown', (e) => {
@@ -422,12 +458,20 @@
   const releaseAll = () => { for (const k in keys) keys[k] = false; };
   addEventListener('blur', () => { releaseAll(); if (state === 'play') paused = true; });
   document.addEventListener('visibilitychange', () => { if (document.hidden && state === 'play') paused = true; });
-  const consume = (...codes) => { let v = false; for (const c of codes) { if (hit[c]) v = true; hit[c] = false; } return v; };
+  const consume = (...codes) => {
+    let v = false;
+    for (const c of codes) {
+      if (hit[c] || gpHit[c]) v = true;
+      hit[c] = false;
+      gpHit[c] = false;
+    }
+    return v;
+  };
   const K = {
-    left: () => keys.ArrowLeft || keys.KeyA,
-    right: () => keys.ArrowRight || keys.KeyD,
-    up: () => keys.Space || keys.ArrowUp || keys.KeyW, // Jetpack (bei leerem Tank: Sprung)
-    down: () => keys.ArrowDown || keys.KeyS,
+    left: () => keys.ArrowLeft || keys.KeyA || gpKeys.ArrowLeft,
+    right: () => keys.ArrowRight || keys.KeyD || gpKeys.ArrowRight,
+    up: () => keys.Space || keys.ArrowUp || keys.KeyW || gpKeys.Space || gpKeys.ArrowUp,
+    down: () => keys.ArrowDown || keys.KeyS || gpKeys.ArrowDown,
   };
 
   // Touch-Steuerung (nur auf Geräten mit Touchscreen sichtbar)
@@ -2266,6 +2310,7 @@
   // ---------- Hauptschleife ----------
   let click = false, rclick = false;
   function update(dt) {
+    pollGamepad();
     time += dt;
     stateT += dt;
     click = mouse.clicked; rclick = mouse.rclicked;
